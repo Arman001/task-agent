@@ -1,4 +1,4 @@
-# 🤖 Task Automation Agent (Phase 1)
+# 🤖 Task Automation Agent (Phase 2)
 
 A step-by-step, build-in-public project focused on creating a **real task automation agent** using modern agentic tooling.
 
@@ -22,63 +22,70 @@ Each phase adds **one clear capability**, while keeping the system runnable and 
 
 ---
 
-## 🧩 Phase 1 – Basic Task-Aware Agent (Current)
+## 🧩 Current Phase: Phase 2 – Multi-Step Planning Agent
 
-### What this phase does
+### What Phase 2 adds
 
-Phase 1 implements a **minimal but real agent loop**:
+Phase 2 transforms the agent from single-step decision making to **intelligent multi-step planning**:
 
-- Accepts a natural language task
-- Decides whether a tool is required
-- Calls the appropriate tool when needed
-- Returns a result based on execution
-- Maintains structured state across steps
+- **Automatic complexity detection**: LLM analyzes tasks and routes appropriately
+- **Multi-step planning**: Complex tasks broken into sequential steps
+- **Step-by-step execution**: Each step builds on previous results
+- **File system operations**: Real-world workflow capabilities
+- **Backward compatibility**: Simple tasks still use Phase 1 direct execution
 
-This phase focuses on **decision-making**, not autonomy hype.
+### 🔄 How it works
 
----
-
-### ✅ Capabilities
-
-- Task understanding via LLM
-- Explicit agent state using `TypedDict`
-- Tool calling (calculator, text analysis)
-- Decision routing with LangGraph
-- Tool → agent feedback loop
-- CLI interface for interaction
-
----
-
-### ❌ What this phase intentionally does NOT include
-
-- Multi-step planning
-- Memory across runs
-- Failure recovery
-- Human approval loops
-- External integrations (APIs, workflows)
-
-These are added **incrementally in later phases**.
-
----
-
-## 🏗 Architecture Overview
+**Two execution paths**:
 
 ```
-User Task
-    ↓
-Agent (LLM)
-    ↓
-Decision Router
-├─→ Tool Execution
-│       ↓
-│   Tool Result
-│       ↓
-└── Agent (Reasoning)
-    ↓
-Final Output
+Simple Task → Analyzer → "SIMPLE" → Direct Execution → Result
+Complex Task → Analyzer → "COMPLEX" → Planner → Step Execution → Result
 ```
 
-The agent uses **LangGraph** to model this flow explicitly instead of relying on hidden control logic.
+**Example flows**:
+- `"Calculate 15 * 8"` → Direct calculator usage
+- `"Create a report from data.txt"` → 4-step plan: check file → read → analyze → write report
+
+---
+
+## ✅ Phase 2 Capabilities
+
+- **Intelligent routing**: LLM decides between simple and complex execution
+- **Multi-step planning**: Complex tasks decomposed automatically
+- **Context preservation**: Each step sees previous results
+- **File operations**: Read, write, and check files
+- **Progress tracking**: Clear step-by-step execution feedback
+- **Tool integration**: Calculator, text analysis, file system
+- **CLI interface**: Enhanced with planning indicators
+
+---
+
+## 🏗 Phase 2 Architecture
+
+```
+User Input
+    ↓
+Complexity Analyzer (LLM)
+    ↓
+┌─ SIMPLE ────────────┐    ┌─ COMPLEX ─────────────┐
+│ Simple Agent        │    │ Planner               │
+│ ↓                   │    │ ↓                     │
+│ Tools (if needed)   │    │ Executor Loop         │
+│ ↓                   │    │ ↓                     │
+│ Direct Result       │    │ Coordinator           │
+└─────────────────────┘    └───────────────────────┘
+                ↓
+            Final Output
+```
+
+**6 LangGraph Nodes**:
+- `analyzer`: Determines task complexity
+- `planner`: Creates step-by-step plans
+- `executor`: Executes individual steps
+- `coordinator`: Compiles final results
+- `simple_agent`: Handles direct execution (Phase 1 behavior)
+- `tools`: Calculator, text analyzer, file operations
 
 ---
 
@@ -86,7 +93,7 @@ The agent uses **LangGraph** to model this flow explicitly instead of relying on
 
 - **LangGraph** – Agent flow, state, and routing
 - **LangChain** – Tool abstractions
-- **Gemini (Google Generative AI)** – LLM reasoning
+- **Groq (Llama 3.1 8B Instant)** – Fast, reliable LLM reasoning
 - **Python** – Core implementation
 - **dotenv** – Environment configuration
 
@@ -96,11 +103,13 @@ The agent uses **LangGraph** to model this flow explicitly instead of relying on
 
 ```
 .
-├── agent.py          # Agent logic and LangGraph setup
-├── tools.py          # Tool definitions (calculator, text analyzer)
-├── state.py          # Agent state definition
-├── main.py           # CLI entry point
-├── .env.example      # Environment variable template
+├── agent.py                    # Phase 2 agent with planning nodes
+├── tools.py                    # Tools (calculator, text analyzer, file ops)
+├── state.py                    # Enhanced state with planning fields
+├── main.py                     # CLI with Phase 2 interface
+├── visualize_graph.py          # Generate workflow diagram
+├── agent_workflow.png          # Visual representation of agent flow
+├── sample_data.txt             # Test file for complex workflows
 └── README.md
 ```
 
@@ -117,29 +126,59 @@ pip install -r requirements.txt
 Create a `.env` file:
 
 ```env
-GOOGLE_API_KEY=your_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
 ```
+
+**Get your free Groq API key**:
+1. Visit [https://console.groq.com/](https://console.groq.com/)
+2. Sign up for free account
+3. Generate API key
+4. Add to `.env` file
 
 ### 3. Run
 ```bash
 python main.py
 ```
 
-You can then enter tasks such as:
+### 4. Try these examples:
 
-- `Calculate (45 * 12) / 3`
-- `Analyze this text: Hello world\nThis is a test`
+**Simple tasks** (direct execution):
+- `Calculate 25 * 16`
+- `What is artificial intelligence?`
+
+**Complex tasks** (multi-step planning):
+- `Create a test file with hello world and analyze it`
+- `Read sample_data.txt and create a summary report`
 
 ---
 
-## 🧠 Why LangGraph?
+## 📊 Phase Evolution
 
-LangGraph allows:
+### ✅ Phase 1 (Branch: `phase-1`)
+- Basic decision-making agent
+- Tool usage (calculator, text analyzer)
+- Simple state management
+- Direct task execution
 
-- Explicit state transitions
-- Deterministic control flow
-- Inspectable agent behavior
-- Easy extension for planning, memory, retries, and approvals
+### ✅ Phase 2 (Branch: `main`)
+- **NEW**: Automatic complexity detection
+- **NEW**: Multi-step planning and execution
+- **NEW**: File system operations
+- **NEW**: Context preservation across steps
+- **ENHANCED**: Intelligent routing
+- **MAINTAINED**: Phase 1 compatibility for simple tasks
+
+---
+
+## 🧠 Why This Architecture?
+
+LangGraph enables:
+
+- **Explicit state transitions**: No hidden control logic
+- **Deterministic routing**: Clear decision points
+- **Inspectable behavior**: Every step is visible
+- **Incremental evolution**: Add capabilities without rewrites
+- **Backward compatibility**: Previous phases continue working
 
 This project treats agents as **software systems**, not prompt tricks.
 
@@ -149,13 +188,12 @@ This project treats agents as **software systems**, not prompt tricks.
 
 Planned future phases:
 
-- **Phase 2**: Task planning & step decomposition
-- **Phase 3**: Real-world tool integrations (APIs, workflows, files)
+- **Phase 3**: Real-world tool integrations (APIs, workflows, databases)
 - **Phase 4**: Failure detection & recovery strategies
 - **Phase 5**: Memory and historical context
 - **Phase 6**: Feedback loops and human-in-the-loop control
 
-Each phase will be added without breaking previous ones.
+Each phase builds incrementally without breaking previous functionality.
 
 ---
 
@@ -163,11 +201,11 @@ Each phase will be added without breaking previous ones.
 
 This architecture is suitable for:
 
-- Task automation systems
-- AI-assisted workflows
-- Controlled agent execution
-- Client-facing automation tools
-- Educational agent experiments
+- **Task automation systems**: Multi-step workflow execution
+- **AI-assisted workflows**: Intelligent task decomposition
+- **Controlled agent execution**: Transparent decision making
+- **Client-facing automation tools**: Reliable multi-step processing
+- **Educational agent experiments**: Clear, inspectable architecture
 
 ---
 
@@ -178,6 +216,7 @@ This project is intentionally developed in public to:
 - Encourage learning through transparency
 - Share real implementation patterns
 - Avoid agent hype and black-box behavior
+- Demonstrate incremental system evolution
 
 Feedback, ideas, and discussion are welcome.
 
