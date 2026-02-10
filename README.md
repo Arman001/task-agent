@@ -1,4 +1,4 @@
-# 🤖 Task Automation Agent (Phase 2)
+# 🤖 Task Automation Agent (Phase 3)
 
 A step-by-step, build-in-public project focused on creating a **real task automation agent** using modern agentic tooling.
 
@@ -22,70 +22,85 @@ Each phase adds **one clear capability**, while keeping the system runnable and 
 
 ---
 
-## 🧩 Current Phase: Phase 2 – Multi-Step Planning Agent
+## 🧩 Current Phase: Phase 3 – Real-World Tool Integration & Error Handling
 
-### What Phase 2 adds
+### What Phase 3 adds
 
-Phase 2 transforms the agent from single-step decision making to **intelligent multi-step planning**:
+Phase 3 transforms the agent from file-based operations to **internet-connected, resilient system**:
 
-- **Automatic complexity detection**: LLM analyzes tasks and routes appropriately
-- **Multi-step planning**: Complex tasks broken into sequential steps
-- **Step-by-step execution**: Each step builds on previous results
-- **File system operations**: Real-world workflow capabilities
-- **Backward compatibility**: Simple tasks still use Phase 1 direct execution
+- **Web search**: Real-time internet search via Tavily API
+- **HTTP requests**: Call any REST API (GET/POST)
+- **URL fetching**: Extract text content from webpages
+- **Weather API**: Live weather data integration
+- **Error handling**: Automatic retry with exponential backoff
+- **Fallback planning**: Alternative approaches when primary fails
+- **Backward compatibility**: All Phase 2 functionality preserved
 
 ### 🔄 How it works
 
-**Two execution paths**:
+**Execution with error handling**:
 
 ```
-Simple Task → Analyzer → "SIMPLE" → Direct Execution → Result
-Complex Task → Analyzer → "COMPLEX" → Planner → Step Execution → Result
+Task → Analyzer → SIMPLE/COMPLEX
+                      ↓
+                  Executor → Success → Continue
+                      ↓
+                   Error → Retry (3x with backoff)
+                      ↓
+                Max Retries → Fallback Planner → Alternative Approach
 ```
 
 **Example flows**:
-- `"Calculate 15 * 8"` → Direct calculator usage
-- `"Create a report from data.txt"` → 4-step plan: check file → read → analyze → write report
+- `"Search for AI agents"` → Web search → Results
+- `"What's the weather in Paris?"` → Weather API → Current conditions
+- `"API fails"` → Retry 3x → Fallback to web search → Success
 
 ---
 
-## ✅ Phase 2 Capabilities
+## ✅ Phase 3 Capabilities
 
-- **Intelligent routing**: LLM decides between simple and complex execution
-- **Multi-step planning**: Complex tasks decomposed automatically
-- **Context preservation**: Each step sees previous results
-- **File operations**: Read, write, and check files
-- **Progress tracking**: Clear step-by-step execution feedback
-- **Tool integration**: Calculator, text analysis, file system
-- **CLI interface**: Enhanced with planning indicators
+- **Internet connectivity**: Search web, fetch URLs, call APIs
+- **Weather data**: Real-time weather from OpenWeatherMap
+- **Error resilience**: Automatic retry with exponential backoff (1s, 2s, 4s)
+- **Fallback intelligence**: Creates alternative plans when primary fails
+- **Tool status tracking**: Monitor success/failure of each step
+- **Error reporting**: Clear error summaries in final output
+- **Production ready**: Handles network failures, timeouts, API errors
+- **Phase 2 compatible**: All previous features still work
 
 ---
 
-## 🏗 Phase 2 Architecture
+## 🏗 Phase 3 Architecture
 
 ```
 User Input
     ↓
 Complexity Analyzer (LLM)
     ↓
-┌─ SIMPLE ────────────┐    ┌─ COMPLEX ─────────────┐
-│ Simple Agent        │    │ Planner               │
-│ ↓                   │    │ ↓                     │
-│ Tools (if needed)   │    │ Executor Loop         │
-│ ↓                   │    │ ↓                     │
-│ Direct Result       │    │ Coordinator           │
-└─────────────────────┘    └───────────────────────┘
+┌─ SIMPLE ────────────┐    ┌─ COMPLEX ─────────────────────┐
+│ Simple Agent        │    │ Planner                       │
+│ ↓                   │    │ ↓                             │
+│ Tools (if needed)   │    │ Executor Loop                 │
+│ ↓                   │    │ ↓                             │
+│ Direct Result       │    │ Error? → Retry (3x backoff)   │
+└─────────────────────┘    │ ↓                             │
+                           │ Max Retries? → Fallback Plan  │
+                           │ ↓                             │
+                           │ Coordinator                   │
+                           └───────────────────────────────┘
                 ↓
             Final Output
 ```
 
-**6 LangGraph Nodes**:
+**8 LangGraph Nodes**:
 - `analyzer`: Determines task complexity
 - `planner`: Creates step-by-step plans
-- `executor`: Executes individual steps
-- `coordinator`: Compiles final results
+- `executor`: Executes individual steps with error handling
+- `error_handler`: Analyzes failures, decides retry/fallback
+- `fallback_planner`: Creates alternative approaches
+- `coordinator`: Compiles final results with error summary
 - `simple_agent`: Handles direct execution (Phase 1 behavior)
-- `tools`: Calculator, text analyzer, file operations
+- `tools`: 9 tools (calculator, files, web, APIs)
 
 ---
 
@@ -94,6 +109,8 @@ Complexity Analyzer (LLM)
 - **LangGraph** – Agent flow, state, and routing
 - **LangChain** – Tool abstractions
 - **Groq (Llama 3.1 8B Instant)** – Fast, reliable LLM reasoning
+- **Tavily** – Web search API
+- **OpenWeatherMap** – Weather data API
 - **Python** – Core implementation
 - **dotenv** – Environment configuration
 
@@ -103,13 +120,16 @@ Complexity Analyzer (LLM)
 
 ```
 .
-├── agent.py                    # Phase 2 agent with planning nodes
-├── tools.py                    # Tools (calculator, text analyzer, file ops)
-├── state.py                    # Enhanced state with planning fields
-├── main.py                     # CLI with Phase 2 interface
+├── agent.py                    # Phase 3 agent with error handling
+├── tools.py                    # 9 tools (basic + web + API)
+├── state.py                    # State with error tracking
+├── config.py                   # Configuration and API keys
+├── main.py                     # CLI with Phase 3 interface
+├── test_phase3.py              # Test suite
 ├── visualize_graph.py          # Generate workflow diagram
-├── agent_workflow.png          # Visual representation of agent flow
-├── sample_data.txt             # Test file for complex workflows
+├── PHASE3_SETUP.md             # Setup guide
+├── PHASE3_PLAN.md              # Implementation plan
+├── sample_data.txt             # Test file for workflows
 └── README.md
 ```
 
@@ -120,6 +140,8 @@ Complexity Analyzer (LLM)
 ### 1. Install dependencies
 ```bash
 pip install -r requirements.txt
+# or with uv:
+uv sync
 ```
 
 ### 2. Set environment variables
@@ -127,28 +149,33 @@ Create a `.env` file:
 
 ```env
 GROQ_API_KEY=your_groq_api_key_here
+TAVILY_API_KEY=your_tavily_api_key_here
+OPENWEATHER_API_KEY=your_openweather_api_key_here
 ```
 
-**Get your free Groq API key**:
-1. Visit [https://console.groq.com/](https://console.groq.com/)
-2. Sign up for free account
-3. Generate API key
-4. Add to `.env` file
+**Get your API keys**:
+1. **Groq**: https://console.groq.com/ (free)
+2. **Tavily**: https://tavily.com/ (free tier)
+3. **OpenWeatherMap**: https://openweathermap.org/api (free tier)
 
 ### 3. Run
 ```bash
 python main.py
+# or with uv:
+uv run python main.py
 ```
 
 ### 4. Try these examples:
 
 **Simple tasks** (direct execution):
 - `Calculate 25 * 16`
-- `What is artificial intelligence?`
+- `Search for LangGraph documentation`
+- `What's the weather in London?`
 
 **Complex tasks** (multi-step planning):
+- `Search for Python tutorials and summarize findings`
 - `Create a test file with hello world and analyze it`
-- `Read sample_data.txt and create a summary report`
+- `Get weather for Paris and create a report`
 
 ---
 
@@ -160,13 +187,24 @@ python main.py
 - Simple state management
 - Direct task execution
 
-### ✅ Phase 2 (Branch: `main`)
-- **NEW**: Automatic complexity detection
-- **NEW**: Multi-step planning and execution
-- **NEW**: File system operations
-- **NEW**: Context preservation across steps
-- **ENHANCED**: Intelligent routing
-- **MAINTAINED**: Phase 1 compatibility for simple tasks
+### ✅ Phase 2 (Branch: `phase-2`)
+- Automatic complexity detection
+- Multi-step planning and execution
+- File system operations
+- Context preservation across steps
+- Intelligent routing
+
+### ✅ Phase 3 (Branch: `main`)
+- **NEW**: Web search (Tavily API)
+- **NEW**: HTTP requests to any REST API
+- **NEW**: URL content fetching
+- **NEW**: Weather API integration
+- **NEW**: Error handling with retry logic
+- **NEW**: Exponential backoff (1s, 2s, 4s)
+- **NEW**: Fallback planning for failures
+- **NEW**: Tool status tracking
+- **ENHANCED**: Error reporting in results
+- **MAINTAINED**: Full backward compatibility
 
 ---
 
@@ -179,6 +217,7 @@ LangGraph enables:
 - **Inspectable behavior**: Every step is visible
 - **Incremental evolution**: Add capabilities without rewrites
 - **Backward compatibility**: Previous phases continue working
+- **Error resilience**: Production-ready failure handling
 
 This project treats agents as **software systems**, not prompt tricks.
 
@@ -188,10 +227,9 @@ This project treats agents as **software systems**, not prompt tricks.
 
 Planned future phases:
 
-- **Phase 3**: Real-world tool integrations (APIs, workflows, databases)
-- **Phase 4**: Failure detection & recovery strategies
-- **Phase 5**: Memory and historical context
-- **Phase 6**: Feedback loops and human-in-the-loop control
+- **Phase 4**: Memory and historical context
+- **Phase 5**: Feedback loops and human-in-the-loop control
+- **Phase 6**: Multi-agent collaboration
 
 Each phase builds incrementally without breaking previous functionality.
 
@@ -201,10 +239,11 @@ Each phase builds incrementally without breaking previous functionality.
 
 This architecture is suitable for:
 
-- **Task automation systems**: Multi-step workflow execution
-- **AI-assisted workflows**: Intelligent task decomposition
-- **Controlled agent execution**: Transparent decision making
-- **Client-facing automation tools**: Reliable multi-step processing
+- **Production automation systems**: Resilient multi-step workflows
+- **AI-assisted research**: Web search + analysis + reporting
+- **API integration workflows**: Connect multiple services reliably
+- **Weather-aware applications**: Real-time weather data processing
+- **Controlled agent execution**: Transparent decision making with error handling
 - **Educational agent experiments**: Clear, inspectable architecture
 
 ---

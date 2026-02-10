@@ -4,10 +4,13 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from dotenv import load_dotenv
 import os
+import time
+from datetime import datetime
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from state import AgentState
-from tools import calculator, text_analyzer, file_reader, file_writer, file_checker
+from tools import calculator, text_analyzer, file_reader, file_writer, file_checker, web_search, http_request, url_fetch, api_weather
+import config
 
 load_dotenv()
 
@@ -31,12 +34,12 @@ def extract_text(content) -> str:
 # LLM - Groq (Fast & Free)
 # -------------------------
 llm = ChatGroq(
-    model="llama-3.1-8b-instant",
+    model="llama-3.3-70b-versatile",
     temperature=0.7,
     groq_api_key=os.getenv("GROQ_API_KEY"),
 )
 
-tools = [calculator, text_analyzer, file_reader, file_writer, file_checker]
+tools = [calculator, text_analyzer, file_reader, file_writer, file_checker, web_search, http_request, url_fetch, api_weather]
 llm_with_tools = llm.bind_tools(tools)
 
 
@@ -46,20 +49,35 @@ llm_with_tools = llm.bind_tools(tools)
 def analyze_complexity(state: AgentState) -> AgentState:
     task = state['task']
     
+    # Initialize Phase 3 fields if not present
+    if 'errors' not in state:
+        state['errors'] = []
+    if 'retry_count' not in state:
+        state['retry_count'] = 0
+    if 'max_retries' not in state:
+        state['max_retries'] = config.MAX_RETRIES
+    if 'tool_status' not in state:
+        state['tool_status'] = {}
+    if 'fallback_triggered' not in state:
+        state['fallback_triggered'] = False
+    
     complexity_prompt = f"""
 Analyze if this task requires multiple steps or can be done in one step.
 
 Task: {task}
 
 Respond with ONLY:
-- "SIMPLE" if it's a single action (math, text analysis, direct question)
-- "COMPLEX" if it needs multiple coordinated steps (file operations + analysis, multi-step workflows)
+- "SIMPLE" if it's a single action (math, text analysis, direct question, single web search, weather check, news search)
+- "COMPLEX" if it needs multiple coordinated steps (file operations + analysis, creating reports from files)
 
 Examples:
 - "Calculate 5+3" → SIMPLE
 - "What is AI?" → SIMPLE  
+- "What's the weather in Paris?" → SIMPLE
+- "Search for AI agents" → SIMPLE
+- "Search for latest news" → SIMPLE
 - "Create a report from data.txt" → COMPLEX
-- "Read file.txt and count words" → COMPLEX
+- "Read file, analyze it, and create summary report" → COMPLEX
 """
     
     response = llm.invoke([HumanMessage(content=complexity_prompt)])
@@ -82,25 +100,32 @@ Break down this complex task into clear, sequential steps.
 Task: {task}
 
 Available tools:
-- file_checker: Check if file exists (use simple names like 'test.txt')
-- file_reader: Read file contents (use simple names like 'test.txt')
-- text_analyzer: Get text statistics
-- calculator: Math operations
-- file_writer: Write content to file (use simple names like 'test.txt')
+- file_checker, file_reader, file_writer, text_analyzer, calculator
+- web_search: Search the internet (USE THIS for research, don't fetch URLs manually)
+- http_request, url_fetch, api_weather
 
-IMPORTANT: Use simple filenames like 'test.txt', 'report.txt' - NOT full paths.
+IMPORTANT RULES:
+1. Keep plans SIMPLE: 2-5 steps MAXIMUM - NO EXCEPTIONS
+2. For search/research tasks: Use web_search ONLY - don't fetch URLs manually
+3. Don't create unnecessary file operations
+4. Use simple filenames like 'test.txt', 'report.txt'
+5. Each step should use ONE tool only
 
-Return ONLY a numbered list of steps, one per line:
+BAD PLAN (DON'T DO THIS):
+1. Search for sources
+2. Check if sources.txt exists
+3. Write sources to file
+4. Fetch URLs from sources...
+(This is 14 steps - TOO COMPLEX!)
+
+GOOD PLAN:
+1. Search for information
+2. Summarize findings
+(This is 2 steps - PERFECT!)
+
+Return ONLY a numbered list of steps:
 1. [First step]
 2. [Second step]
-3. [Third step]
-...
-
-Example for "Create summary of data.txt":
-1. Check if data.txt exists
-2. Read data.txt contents
-3. Analyze text statistics
-4. Write summary to report.txt
 """
     
     response = llm.invoke([HumanMessage(content=planning_prompt)])
@@ -127,7 +152,7 @@ Example for "Create summary of data.txt":
 
 
 # -------------------------
-# Executor Node
+# Executor Node (with retry logic)
 # -------------------------
 def executor_node(state: AgentState) -> AgentState:
     current_step = state['current_step']
@@ -137,6 +162,13 @@ def executor_node(state: AgentState) -> AgentState:
         return state
     
     step_task = plan[current_step]
+    
+    # Handle retry with exponential backoff
+    if state['retry_count'] > 0:
+        backoff_delay = config.BACKOFF_BASE ** state['retry_count']
+        print(f"⏳ Retry {state['retry_count']}/{state['max_retries']} after {backoff_delay}s delay...")
+        time.sleep(backoff_delay)
+    
     print(f"⚡ Executing step {current_step + 1}: {step_task}")
     
     # Build context from previous results
@@ -157,6 +189,10 @@ Available tools:
 - file_checker: Check file existence
 - file_reader: Read file contents
 - file_writer: Write content to file
+- web_search: Search the internet
+- http_request: Make HTTP requests
+- url_fetch: Fetch webpage content
+- api_weather: Get weather data
 
 Execute this step using the appropriate tool if needed, or provide a direct response.
 """)
@@ -164,21 +200,39 @@ Execute this step using the appropriate tool if needed, or provide a direct resp
     user_msg = HumanMessage(content=step_task)
     messages = [system_prompt, user_msg]
     
-    response = llm_with_tools.invoke(messages)
-    
-    # Handle tool calls
-    if getattr(response, "tool_calls", None):
-        # Execute tools
-        tool_node = ToolNode(tools)
-        tool_result = tool_node.invoke({"messages": [response]})
-        step_result = extract_text(tool_result['messages'][-1].content)
-    else:
-        step_result = extract_text(response.content)
-    
-    state['step_results'].append(step_result)
-    state['current_step'] += 1
-    
-    print(f"✅ Step {current_step + 1} result: {step_result}\n")
+    try:
+        response = llm_with_tools.invoke(messages)
+        
+        # Handle tool calls
+        if getattr(response, "tool_calls", None):
+            tool_node = ToolNode(tools)
+            tool_result = tool_node.invoke({"messages": [response]})
+            step_result = extract_text(tool_result['messages'][-1].content)
+            
+            # Check for errors in tool result
+            if "error" in step_result.lower() or "failed" in step_result.lower():
+                raise Exception(step_result)
+        else:
+            step_result = extract_text(response.content)
+        
+        # Success - reset retry count
+        state['step_results'].append(step_result)
+        state['current_step'] += 1
+        state['retry_count'] = 0
+        state['tool_status'][f"step_{current_step}"] = "success"
+        
+        print(f"✅ Step {current_step + 1} result: {step_result}\n")
+        
+    except Exception as e:
+        error_info = {
+            "step": current_step,
+            "task": step_task,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+        state['errors'].append(error_info)
+        state['tool_status'][f"step_{current_step}"] = "failed"
+        print(f"❌ Step {current_step + 1} failed: {str(e)}")
     
     return state
 
@@ -192,14 +246,22 @@ def simple_agent_node(state: AgentState) -> AgentState:
     if not messages:
         system_prompt = SystemMessage(content=f"""
 You are a task automation assistant.
-Available tools:
-- calculator: Math calculations
-- text_analyzer: Text statistics
-- file_checker: Check file existence
-- file_reader: Read file contents
-- file_writer: Write content to file
 
 Current task: {state['task']}
+
+Available tools:
+- calculator, text_analyzer, file_checker, file_reader, file_writer
+- web_search, http_request, url_fetch, api_weather
+
+CRITICAL RULES:
+1. For "search" tasks → Use web_search tool ONLY ONCE, then STOP
+2. For "weather" tasks → Use api_weather tool ONLY ONCE, then STOP
+3. For "calculate" tasks → Use calculator tool ONLY ONCE, then STOP
+4. DO NOT chain multiple tools together
+5. DO NOT analyze the tool's output with another tool
+6. Return the tool result directly as your answer
+
+Execute the appropriate tool and provide its output as your final response.
 """)
         user_msg = HumanMessage(content=state['task'])
         messages.extend([system_prompt, user_msg])
@@ -212,8 +274,84 @@ Current task: {state['task']}
             tool_name = tool_call.get("name", "unknown")
             print(f"🔧 Using tool: {tool_name}")
     else:
-        state["result"] = extract_text(response.content)
+        # No tool calls, this is the final response
+        result = extract_text(response.content)
+        if result and result.strip():
+            state["result"] = result
 
+    return state
+
+
+# -------------------------
+# Phase 3: Error Handler Node
+# -------------------------
+def error_handler_node(state: AgentState) -> AgentState:
+    """Analyze errors and decide on retry or fallback."""
+    if not state['errors']:
+        return state
+    
+    last_error = state['errors'][-1]
+    print(f"⚠️  Error handler analyzing: {last_error['error'][:100]}")
+    
+    # Check if we should retry
+    if state['retry_count'] < state['max_retries']:
+        state['retry_count'] += 1
+        print(f"🔄 Will retry (attempt {state['retry_count']}/{state['max_retries']})")
+    else:
+        # Max retries reached, trigger fallback
+        print(f"⛔ Max retries reached, triggering fallback")
+        state['fallback_triggered'] = True
+        state['retry_count'] = 0
+    
+    return state
+
+
+# -------------------------
+# Phase 3: Fallback Planner Node
+# -------------------------
+def fallback_planner_node(state: AgentState) -> AgentState:
+    """Create alternate plan when primary approach fails."""
+    current_step = state['current_step']
+    failed_step = state['plan'][current_step] if current_step < len(state['plan']) else "unknown"
+    
+    print(f"🔀 Creating fallback plan for failed step: {failed_step}")
+    
+    fallback_prompt = f"""
+The following step failed after multiple retries:
+{failed_step}
+
+Error: {state['errors'][-1]['error'] if state['errors'] else 'Unknown error'}
+
+Provide ONE simple alternative action:
+- If it's a URL fetch that failed, respond: "SKIP"
+- If it's a file operation, suggest checking the file first
+- If it's an API call, suggest using web_search instead
+
+Respond with ONLY:
+- "SKIP" to skip this step, OR
+- One short alternative step (max 10 words)
+
+Examples:
+- "SKIP"
+- "Use web_search for the information"
+- "Check if file exists first"
+"""
+    
+    response = llm.invoke([HumanMessage(content=fallback_prompt)])
+    fallback_step = extract_text(response.content).strip()
+    
+    if fallback_step.upper() == "SKIP" or "skip" in fallback_step.lower():
+        print(f"⏭️  Skipping failed step")
+        state['step_results'].append(f"[SKIPPED: {failed_step}]")
+        state['current_step'] += 1
+    else:
+        print(f"🔄 Fallback approach: {fallback_step}")
+        state['plan'][current_step] = fallback_step
+    
+    # Clear errors and reset for new attempt
+    state['errors'] = []
+    state['fallback_triggered'] = False
+    
     return state
 
 
@@ -227,7 +365,16 @@ def coordinator_node(state: AgentState) -> AgentState:
     # Compile final result
     result_summary = f"Completed {len(step_results)} steps:\n\n"
     for i, (step, result) in enumerate(zip(plan, step_results), 1):
-        result_summary += f"Step {i}: {step}\n→ {result}\n\n"
+        status = state['tool_status'].get(f"step_{i-1}", "unknown")
+        icon = "✅" if status == "success" else "⚠️"
+        result_summary += f"{icon} Step {i}: {step}\n→ {result}\n\n"
+    
+    # Add error summary if any failures occurred
+    if state['errors']:
+        result_summary += f"\n⚠️  Encountered {len(state['errors'])} error(s) during execution\n"
+    
+    if state.get('fallback_triggered') or any('SKIP' in r for r in step_results):
+        result_summary += "\n🔀 Fallback strategies were used\n"
     
     state['result'] = result_summary.strip()
     return state
@@ -251,6 +398,21 @@ def simple_agent_router(state: AgentState) -> str:
 
 
 def execution_router(state: AgentState) -> str:
+    """Route based on errors, retries, and step completion."""
+    # Check if there are errors
+    if state['errors'] and not state['fallback_triggered']:
+        # Check if we should retry
+        if state['retry_count'] < state['max_retries']:
+            return "error_handler"
+        else:
+            # Max retries reached, go to fallback
+            return "error_handler"
+    
+    # Check if fallback was triggered
+    if state['fallback_triggered']:
+        return "fallback_planner"
+    
+    # Check if more steps remain
     current_step = state['current_step']
     plan = state['plan']
     
@@ -272,6 +434,10 @@ def create_agent():
     workflow.add_node("coordinator", coordinator_node)
     workflow.add_node("simple_agent", simple_agent_node)
     workflow.add_node("tools", ToolNode(tools))
+    
+    # Phase 3: Error handling nodes
+    workflow.add_node("error_handler", error_handler_node)
+    workflow.add_node("fallback_planner", fallback_planner_node)
 
     # Set entry point
     workflow.set_entry_point("analyzer")
@@ -288,8 +454,17 @@ def create_agent():
     workflow.add_conditional_edges(
         "executor",
         execution_router,
-        {"executor": "executor", "coordinator": "coordinator"}
+        {
+            "executor": "executor",
+            "coordinator": "coordinator",
+            "error_handler": "error_handler",
+            "fallback_planner": "fallback_planner"
+        }
     )
+    
+    # Phase 3: Error handling edges
+    workflow.add_edge("error_handler", "executor")  # Retry
+    workflow.add_edge("fallback_planner", "executor")  # Try fallback
     
     workflow.add_edge("coordinator", END)
     

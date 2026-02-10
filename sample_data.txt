@@ -1,4 +1,0 @@
-This is a sample data file for testing the Phase 2 agent.
-It contains multiple lines of text.
-The agent should be able to read this file, analyze it, and create reports.
-This demonstrates multi-step task execution capabilities.
