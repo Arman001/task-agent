@@ -18,3 +18,8 @@ class AgentState(TypedDict):
     max_retries: int  # Maximum retries allowed
     tool_status: Dict[str, str]  # Track success/failure per tool
     fallback_triggered: bool  # Whether fallback path was used
+    
+    # Phase 4: Memory fields
+    session_id: str  # Current session UUID
+    memory_context: Dict[str, Any]  # Retrieved memories
+    should_save_memory: bool  # Flag to save this task

@@ -11,6 +11,8 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from state import AgentState
 from tools import calculator, text_analyzer, file_reader, file_writer, file_checker, web_search, http_request, url_fetch, api_weather
 import config
+from memory_nodes import memory_retrieval_node, memory_writer_node
+import uuid
 
 load_dotenv()
 
@@ -35,7 +37,7 @@ def extract_text(content) -> str:
 # -------------------------
 llm = ChatGroq(
     model="llama-3.3-70b-versatile",
-    temperature=0.7,
+    temperature=0.0,
     groq_api_key=os.getenv("GROQ_API_KEY"),
 )
 
@@ -109,7 +111,8 @@ IMPORTANT RULES:
 2. For search/research tasks: Use web_search ONLY - don't fetch URLs manually
 3. Don't create unnecessary file operations
 4. Use simple filenames like 'test.txt', 'report.txt'
-5. Each step should use ONE tool only
+5. Each step should use ONE tool only. NEVER combine reading and analyzing in a single step.
+6. If you need to analyze a file, you MUST explicitly include a step to read it first (e.g. Step 1: Write file, Step 2: Read file, Step 3: Analyze text from previous step).
 
 BAD PLAN (DON'T DO THIS):
 1. Search for sources
@@ -178,26 +181,9 @@ def executor_node(state: AgentState) -> AgentState:
             f"Step {i+1}: {result}" for i, result in enumerate(state['step_results'])
         )
     
-    system_prompt = SystemMessage(content=f"""
-You are executing one step of a multi-step plan.
-Current step: {step_task}
-{context}
-
-Available tools:
-- calculator: Math operations
-- text_analyzer: Text statistics  
-- file_checker: Check file existence
-- file_reader: Read file contents
-- file_writer: Write content to file
-- web_search: Search the internet
-- http_request: Make HTTP requests
-- url_fetch: Fetch webpage content
-- api_weather: Get weather data
-
-Execute this step using the appropriate tool if needed, or provide a direct response.
-""")
+    system_prompt = SystemMessage(content="You are a helpful assistant executing one step of a plan. Use the correct tool for the instructions.")
     
-    user_msg = HumanMessage(content=step_task)
+    user_msg = HumanMessage(content=f"Context: {context}\n\nCurrent step to execute: {step_task}")
     messages = [system_prompt, user_msg]
     
     try:
@@ -212,6 +198,10 @@ Execute this step using the appropriate tool if needed, or provide a direct resp
             # Check for errors in tool result
             if "error" in step_result.lower() or "failed" in step_result.lower():
                 raise Exception(step_result)
+                
+            # Log specific tool name success for performance stats
+            actual_tool_name = response.tool_calls[0].get("name", "unknown")
+            state['tool_status'][actual_tool_name] = "success"
         else:
             step_result = extract_text(response.content)
         
@@ -240,34 +230,31 @@ Execute this step using the appropriate tool if needed, or provide a direct resp
 # -------------------------
 # Simple Agent Node (Phase 1 behavior)
 # -------------------------
-def simple_agent_node(state: AgentState) -> AgentState:
+def simple_agent_node(state: AgentState) -> dict:
     messages = state.get("messages", [])
+    new_messages = []
 
     if not messages:
-        system_prompt = SystemMessage(content=f"""
-You are a task automation assistant.
+        # Build memory context string
+        memory_str = ""
+        memory_context = state.get('memory_context', {})
+        if memory_context.get('session_history'):
+            memory_str = "\nRecent Session History:\n" + "\n".join(
+                f"- User: {item['task']}\n  Result: {item['result'][:150]}..." 
+                for item in memory_context['session_history']
+            )
 
-Current task: {state['task']}
+        system_prompt = SystemMessage(content="You are a helpful assistant. Use tools if necessary. If the answer is in the recent history, answer directly.")
+        user_msg = HumanMessage(content=f"Recent History: {memory_str}\n\nTask: {state['task']}")
+        current_messages = [system_prompt, user_msg]
+        new_messages.extend([system_prompt, user_msg])
+    else:
+        current_messages = list(messages)
 
-Available tools:
-- calculator, text_analyzer, file_checker, file_reader, file_writer
-- web_search, http_request, url_fetch, api_weather
-
-CRITICAL RULES:
-1. For "search" tasks → Use web_search tool ONLY ONCE, then STOP
-2. For "weather" tasks → Use api_weather tool ONLY ONCE, then STOP
-3. For "calculate" tasks → Use calculator tool ONLY ONCE, then STOP
-4. DO NOT chain multiple tools together
-5. DO NOT analyze the tool's output with another tool
-6. Return the tool result directly as your answer
-
-Execute the appropriate tool and provide its output as your final response.
-""")
-        user_msg = HumanMessage(content=state['task'])
-        messages.extend([system_prompt, user_msg])
-
-    response = llm_with_tools.invoke(messages)
-    state["messages"].append(response)
+    response = llm_with_tools.invoke(current_messages)
+    new_messages.append(response)
+    
+    updates = {"messages": new_messages}
 
     if getattr(response, "tool_calls", None):
         for tool_call in response.tool_calls:
@@ -277,9 +264,9 @@ Execute the appropriate tool and provide its output as your final response.
         # No tool calls, this is the final response
         result = extract_text(response.content)
         if result and result.strip():
-            state["result"] = result
+            updates["result"] = result
 
-    return state
+    return updates
 
 
 # -------------------------
@@ -399,8 +386,12 @@ def simple_agent_router(state: AgentState) -> str:
 
 def execution_router(state: AgentState) -> str:
     """Route based on errors, retries, and step completion."""
-    # Check if there are errors
-    if state['errors'] and not state['fallback_triggered']:
+    current_step = state['current_step']
+    
+    # Check if the step we are currently on has failed
+    step_status = state['tool_status'].get(f"step_{current_step}")
+    
+    if step_status == "failed" and not state['fallback_triggered']:
         # Check if we should retry
         if state['retry_count'] < state['max_retries']:
             return "error_handler"
@@ -439,10 +430,18 @@ def create_agent():
     workflow.add_node("error_handler", error_handler_node)
     workflow.add_node("fallback_planner", fallback_planner_node)
 
-    # Set entry point
-    workflow.set_entry_point("analyzer")
+    # NEW Phase 4 nodes
+    workflow.add_node("memory_retrieval", memory_retrieval_node)
+    workflow.add_node("memory_writer", memory_writer_node)
+
+    # NEW: Memory retrieval is now the entry point
+    workflow.set_entry_point("memory_retrieval")
 
     # Add edges
+    
+    # Memory retrieval → Analyzer
+    workflow.add_edge("memory_retrieval", "analyzer")
+
     workflow.add_conditional_edges(
         "analyzer",
         complexity_router,
@@ -466,12 +465,14 @@ def create_agent():
     workflow.add_edge("error_handler", "executor")  # Retry
     workflow.add_edge("fallback_planner", "executor")  # Try fallback
     
-    workflow.add_edge("coordinator", END)
+    # NEW: Coordinator → Memory Writer → END
+    workflow.add_edge("coordinator", "memory_writer")
+    workflow.add_edge("memory_writer", END)
     
     workflow.add_conditional_edges(
         "simple_agent",
         simple_agent_router,
-        {"tools": "tools", END: END}
+        {"tools": "tools", END: "memory_writer"}
     )
     
     workflow.add_edge("tools", "simple_agent")

@@ -4,6 +4,10 @@ import requests
 from bs4 import BeautifulSoup
 from tavily import TavilyClient
 import config
+from memory_manager import MemoryManager
+import hashlib
+
+memory_manager = MemoryManager()
 
 
 @tool
@@ -42,6 +46,21 @@ def file_reader(path: str) -> str:
             path = os.path.join(os.getcwd(), path)
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
+            
+        # Cache file metadata
+        file_size = os.path.getsize(path)
+        lines = content.count('\n') + 1
+        words = len(content.split())
+        content_hash = hashlib.md5(content.encode()).hexdigest()
+        
+        memory_manager.cache_file_metadata(
+            path=path,
+            size=file_size,
+            line_count=lines,
+            word_count=words,
+            content_hash=content_hash
+        )
+        
         return f"File content:\n{content}"
     except Exception as e:
         return f"Error reading file: {e}"
@@ -59,6 +78,21 @@ def file_writer(path: str, content: str) -> str:
             path = os.path.join(os.getcwd(), path)
         with open(path, 'w', encoding='utf-8') as f:
             f.write(content)
+            
+        # Cache file metadata
+        file_size = os.path.getsize(path)
+        lines = content.count('\n') + 1
+        words = len(content.split())
+        content_hash = hashlib.md5(content.encode()).hexdigest()
+        
+        memory_manager.cache_file_metadata(
+            path=path,
+            size=file_size,
+            line_count=lines,
+            word_count=words,
+            content_hash=content_hash
+        )
+        
         return f"Successfully wrote to {os.path.basename(path)}"
     except Exception as e:
         return f"Error writing file: {e}"

@@ -41,3 +41,8 @@ ENV/
 
 # LangSmith
 .langsmith/
+
+# Databases
+*.db
+*.sqlite
+agent_memory.db

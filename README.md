@@ -1,4 +1,4 @@
-# 🤖 Task Automation Agent (Phase 3)
+# 🤖 Task Automation Agent (Phase 4)
 
 A step-by-step, build-in-public project focused on creating a **real task automation agent** using modern agentic tooling.
 
@@ -22,58 +22,52 @@ Each phase adds **one clear capability**, while keeping the system runnable and 
 
 ---
 
-## 🧩 Current Phase: Phase 3 – Real-World Tool Integration & Error Handling
+## 🧩 Current Phase: Phase 4 – Memory & Context
 
-### What Phase 3 adds
+### What Phase 4 adds
 
-Phase 3 transforms the agent from file-based operations to **internet-connected, resilient system**:
+Phase 4 gives the agent memory - it can now remember past tasks, learn from failures, and optimize based on experience:
 
-- **Web search**: Real-time internet search via Tavily API
-- **HTTP requests**: Call any REST API (GET/POST)
-- **URL fetching**: Extract text content from webpages
-- **Weather API**: Live weather data integration
-- **Error handling**: Automatic retry with exponential backoff
-- **Fallback planning**: Alternative approaches when primary fails
-- **Backward compatibility**: All Phase 2 functionality preserved
+- **Task History**: Remembers all past executions with outcomes
+- **Context Awareness**: Maintains conversation context within session
+- **File Caching**: Skips re-validation of known files
+- **Pattern Learning**: Tracks tool success rates and learns optimal approaches
+- **Faster Execution**: Repeat tasks run 2-3x faster with cached context
+- **Backward compatibility**: All Phase 3 functionality preserved
 
 ### 🔄 How it works
 
-**Execution with error handling**:
+**Flow with Memory**:
 
 ```
-Task → Analyzer → SIMPLE/COMPLEX
-                      ↓
-                  Executor → Success → Continue
-                      ↓
-                   Error → Retry (3x with backoff)
-                      ↓
-                Max Retries → Fallback Planner → Alternative Approach
+Input → Memory Retrieval → Analysis → Execution → Memory Writer → Result
 ```
 
-**Example flows**:
-- `"Search for AI agents"` → Web search → Results
-- `"What's the weather in Paris?"` → Weather API → Current conditions
-- `"API fails"` → Retry 3x → Fallback to web search → Success
+**Memory Types**:
+1. **Conversation Memory** (Short-term): Current session context, cleared on restart
+2. **Task History** (Long-term): All executed tasks, searchable for similar past tasks
+3. **Pattern Learning** (Intelligence): Tool success rates, file metadata cache, optimization
 
 ---
 
-## ✅ Phase 3 Capabilities
+## ✅ Phase 4 Capabilities
 
-- **Internet connectivity**: Search web, fetch URLs, call APIs
-- **Weather data**: Real-time weather from OpenWeatherMap
-- **Error resilience**: Automatic retry with exponential backoff (1s, 2s, 4s)
-- **Fallback intelligence**: Creates alternative plans when primary fails
-- **Tool status tracking**: Monitor success/failure of each step
-- **Error reporting**: Clear error summaries in final output
-- **Production ready**: Handles network failures, timeouts, API errors
-- **Phase 2 compatible**: All previous features still work
+- **Intelligent caching**: File metadata speeds up checks and reads
+- **Tool learning**: Tracks success and failure rates per tool
+- **Conversation history**: Uses recent tasks for context
+- **Persistent storage**: Stores logs in local SQLite database
+- **Internet connectivity**: Search web, fetch URLs, call APIs (Phase 3)
+- **Error resilience**: Automatic retry with exponential backoff (Phase 3)
+- **Fallback intelligence**: Creates alternative plans when primary fails (Phase 3)
 
 ---
 
-## 🏗 Phase 3 Architecture
+## 🏗 Phase 4 Architecture
 
 ```
 User Input
+    ↓
+Memory Retrieval (Fetch Context)
     ↓
 Complexity Analyzer (LLM)
     ↓
@@ -83,16 +77,20 @@ Complexity Analyzer (LLM)
 │ Tools (if needed)   │    │ Executor Loop                 │
 │ ↓                   │    │ ↓                             │
 │ Direct Result       │    │ Error? → Retry (3x backoff)   │
-└─────────────────────┘    │ ↓                             │
-                           │ Max Retries? → Fallback Plan  │
-                           │ ↓                             │
-                           │ Coordinator                   │
-                           └───────────────────────────────┘
-                ↓
-            Final Output
+└─────────┬───────────┘    │ ↓                             │
+          │                │ Max Retries? → Fallback Plan  │
+          │                │ ↓                             │
+          │                │ Coordinator                   │
+          │                └──────────────┬────────────────┘
+          └─────────────┬─────────────────┘
+                        ↓
+            Memory Writer (Save Context)
+                        ↓
+                  Final Output
 ```
 
-**8 LangGraph Nodes**:
+**10 LangGraph Nodes**:
+- `memory_retrieval`: Pre-fetches task context, session history and file caches
 - `analyzer`: Determines task complexity
 - `planner`: Creates step-by-step plans
 - `executor`: Executes individual steps with error handling
@@ -101,6 +99,7 @@ Complexity Analyzer (LLM)
 - `coordinator`: Compiles final results with error summary
 - `simple_agent`: Handles direct execution (Phase 1 behavior)
 - `tools`: 9 tools (calculator, files, web, APIs)
+- `memory_writer`: Saves execution results, states, and telemetry to SQLite
 
 ---
 
@@ -120,16 +119,16 @@ Complexity Analyzer (LLM)
 
 ```
 .
-├── agent.py                    # Phase 3 agent with error handling
-├── tools.py                    # 9 tools (basic + web + API)
-├── state.py                    # State with error tracking
+├── agent.py                    # Core agent logic
+├── tools.py                    # Tools (basic + web + API)
+├── state.py                    # State with error & memory tracking
 ├── config.py                   # Configuration and API keys
-├── main.py                     # CLI with Phase 3 interface
-├── test_phase3.py              # Test suite
-├── visualize_graph.py          # Generate workflow diagram
-├── PHASE3_SETUP.md             # Setup guide
-├── PHASE3_PLAN.md              # Implementation plan
-├── sample_data.txt             # Test file for workflows
+├── main.py                     # CLI with Memory interface
+├── memory_manager.py           # SQLite database interaction layer
+├── memory_nodes.py             # Memory retrieval and saving nodes
+├── memory_schema.py            # SQLite schema
+├── test_phase4.py              # Test suite
+├── agent_memory.db             # Local memory database
 └── README.md
 ```
 
@@ -158,14 +157,19 @@ OPENWEATHER_API_KEY=your_openweather_api_key_here
 2. **Tavily**: https://tavily.com/ (free tier)
 3. **OpenWeatherMap**: https://openweathermap.org/api (free tier)
 
-### 3. Run
+### 3. Initialize Memory DB
+```bash
+python memory_schema.py
+```
+
+### 4. Run
 ```bash
 python main.py
 # or with uv:
 uv run python main.py
 ```
 
-### 4. Try these examples:
+### 5. Try these examples:
 
 **Simple tasks** (direct execution):
 - `Calculate 25 * 16`
@@ -173,9 +177,12 @@ uv run python main.py
 - `What's the weather in London?`
 
 **Complex tasks** (multi-step planning):
-- `Search for Python tutorials and summarize findings`
 - `Create a test file with hello world and analyze it`
-- `Get weather for Paris and create a report`
+
+**Memory specific tasks**:
+- `stats` -> See memory status and tool performance
+- Type a repeat task -> Watch it execute faster (File Cache)
+- Reference a past item -> E.g., "Analyze the file from earlier"
 
 ---
 
@@ -194,17 +201,21 @@ uv run python main.py
 - Context preservation across steps
 - Intelligent routing
 
-### ✅ Phase 3 (Branch: `main`)
-- **NEW**: Web search (Tavily API)
-- **NEW**: HTTP requests to any REST API
-- **NEW**: URL content fetching
-- **NEW**: Weather API integration
-- **NEW**: Error handling with retry logic
-- **NEW**: Exponential backoff (1s, 2s, 4s)
-- **NEW**: Fallback planning for failures
-- **NEW**: Tool status tracking
-- **ENHANCED**: Error reporting in results
-- **MAINTAINED**: Full backward compatibility
+### ✅ Phase 3 (Branch: `phase-3`)
+- Web search (Tavily API)
+- HTTP requests to any REST API
+- URL content fetching
+- Weather API integration
+- Error handling with retry logic
+- Exponential backoff (1s, 2s, 4s)
+- Fallback planning for failures
+
+### ✅ Phase 4 (Branch: `main`)
+- **NEW**: Task History Database
+- **NEW**: Session/Context memory awareness
+- **NEW**: File metadata caching
+- **NEW**: Tool success rate analytics
+- **NEW**: Faster execution times through caching
 
 ---
 
@@ -227,7 +238,6 @@ This project treats agents as **software systems**, not prompt tricks.
 
 Planned future phases:
 
-- **Phase 4**: Memory and historical context
 - **Phase 5**: Feedback loops and human-in-the-loop control
 - **Phase 6**: Multi-agent collaboration
 
