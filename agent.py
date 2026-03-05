@@ -9,9 +9,10 @@ from datetime import datetime
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from state import AgentState
-from tools import calculator, text_analyzer, file_reader, file_writer, file_checker, web_search, http_request, url_fetch, api_weather
+from tools import calculator, text_analyzer, file_reader, file_writer, file_checker, file_deleter, web_search, http_request, url_fetch, api_weather
 import config
 from memory_nodes import memory_retrieval_node, memory_writer_node
+from approval_nodes import risk_classifier_node, approval_request_node, approval_decision_node
 import uuid
 
 load_dotenv()
@@ -41,7 +42,7 @@ llm = ChatGroq(
     groq_api_key=os.getenv("GROQ_API_KEY"),
 )
 
-tools = [calculator, text_analyzer, file_reader, file_writer, file_checker, web_search, http_request, url_fetch, api_weather]
+tools = [calculator, text_analyzer, file_reader, file_writer, file_checker, file_deleter, web_search, http_request, url_fetch, api_weather]
 llm_with_tools = llm.bind_tools(tools)
 
 
@@ -62,6 +63,14 @@ def analyze_complexity(state: AgentState) -> AgentState:
         state['tool_status'] = {}
     if 'fallback_triggered' not in state:
         state['fallback_triggered'] = False
+    
+    # Phase 5 initialization
+    if 'skip_current_step' not in state:
+        state['skip_current_step'] = False
+    if 'approval_granted' not in state:
+        state['approval_granted'] = False
+    if 'risk_level' not in state:
+        state['risk_level'] = "SAFE"
     
     complexity_prompt = f"""
 Analyze if this task requires multiple steps or can be done in one step.
@@ -102,7 +111,7 @@ Break down this complex task into clear, sequential steps.
 Task: {task}
 
 Available tools:
-- file_checker, file_reader, file_writer, text_analyzer, calculator
+- file_checker, file_reader, file_writer, file_deleter, text_analyzer, calculator
 - web_search: Search the internet (USE THIS for research, don't fetch URLs manually)
 - http_request, url_fetch, api_weather
 
@@ -162,6 +171,11 @@ def executor_node(state: AgentState) -> AgentState:
     plan = state['plan']
     
     if current_step >= len(plan):
+        return state
+        
+    if state.get('skip_current_step'):
+        state['current_step'] += 1
+        state['skip_current_step'] = False
         return state
     
     step_task = plan[current_step]
@@ -378,9 +392,14 @@ def complexity_router(state: AgentState) -> str:
 
 
 def simple_agent_router(state: AgentState) -> str:
+    # If the user rejected the step during simple path execution,
+    # skip_current_step is evaluated True. Bail out so we don't recursive loop.
+    if state.get('skip_current_step'):
+        return END
+
     last = state["messages"][-1]
     if getattr(last, "tool_calls", None):
-        return "tools"
+        return "risk_classifier"
     return END
 
 
@@ -408,8 +427,22 @@ def execution_router(state: AgentState) -> str:
     plan = state['plan']
     
     if current_step < len(plan):
-        return "executor"
+        return "risk_classifier"
     return "coordinator"
+
+def approval_router(state: AgentState) -> str:
+    # risk_classifier decides and sets approval_granted if safe or auto-approved
+    if state.get('approval_granted'):
+        return "approval_decision" # Skip prompt
+    return "approval_request"
+
+def post_approval_router(state: AgentState) -> str:
+    if not state.get('approval_granted') and state.get('complexity') == 'SIMPLE':
+        return END # Exit directly to avoid forcing the LLM into a fallback loop
+    
+    if state.get('complexity') == 'COMPLEX':
+        return "executor"
+    return "tools"
 
 
 # -------------------------
@@ -433,6 +466,11 @@ def create_agent():
     # NEW Phase 4 nodes
     workflow.add_node("memory_retrieval", memory_retrieval_node)
     workflow.add_node("memory_writer", memory_writer_node)
+    
+    # NEW Phase 5 nodes
+    workflow.add_node("risk_classifier", risk_classifier_node)
+    workflow.add_node("approval_request", approval_request_node)
+    workflow.add_node("approval_decision", approval_decision_node)
 
     # NEW: Memory retrieval is now the entry point
     workflow.set_entry_point("memory_retrieval")
@@ -448,13 +486,13 @@ def create_agent():
         {"planner": "planner", "simple_agent": "simple_agent"}
     )
     
-    workflow.add_edge("planner", "executor")
+    workflow.add_edge("planner", "risk_classifier")
     
     workflow.add_conditional_edges(
         "executor",
         execution_router,
         {
-            "executor": "executor",
+            "risk_classifier": "risk_classifier",
             "coordinator": "coordinator",
             "error_handler": "error_handler",
             "fallback_planner": "fallback_planner"
@@ -462,8 +500,8 @@ def create_agent():
     )
     
     # Phase 3: Error handling edges
-    workflow.add_edge("error_handler", "executor")  # Retry
-    workflow.add_edge("fallback_planner", "executor")  # Try fallback
+    workflow.add_edge("error_handler", "executor")  # Retry executes without reprorompt
+    workflow.add_edge("fallback_planner", "risk_classifier")  # Try fallback requires classifier
     
     # NEW: Coordinator → Memory Writer → END
     workflow.add_edge("coordinator", "memory_writer")
@@ -472,7 +510,20 @@ def create_agent():
     workflow.add_conditional_edges(
         "simple_agent",
         simple_agent_router,
-        {"tools": "tools", END: "memory_writer"}
+        {"risk_classifier": "risk_classifier", END: "memory_writer"}
+    )
+    
+    workflow.add_conditional_edges(
+        "risk_classifier",
+        approval_router,
+        {"approval_request": "approval_request", "approval_decision": "approval_decision"}
+    )
+    workflow.add_edge("approval_request", "approval_decision")
+    
+    workflow.add_conditional_edges(
+        "approval_decision",
+        post_approval_router,
+        {"executor": "executor", "tools": "tools", END: END}
     )
     
     workflow.add_edge("tools", "simple_agent")

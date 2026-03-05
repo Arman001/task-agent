@@ -23,3 +23,11 @@ class AgentState(TypedDict):
     session_id: str  # Current session UUID
     memory_context: Dict[str, Any]  # Retrieved memories
     should_save_memory: bool  # Flag to save this task
+    
+    # Phase 5: Feedback & Control fields
+    pending_approval: Dict[str, Any]  # Optional action awaiting approval
+    approval_granted: bool  # User decision (True/False)
+    approval_history: List[Dict[str, Any]]  # Past approval decisions
+    user_preferences: Dict[str, str]  # Approval rules per action type
+    risk_level: str  # Current step risk: SAFE/MODERATE/CRITICAL
+    skip_current_step: bool  # Flag to skip rejected steps

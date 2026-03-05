@@ -1,6 +1,8 @@
 from agent import agent
 from state import AgentState
 from memory_manager import MemoryManager
+from preference_manager import preference_manager
+from approval_logger import approval_logger
 import uuid
 
 memory_manager = MemoryManager()
@@ -27,7 +29,14 @@ def run_agent(task: str, session_id: str):
         # Phase 4 fields
         session_id=session_id,
         memory_context={},
-        should_save_memory=True
+        should_save_memory=True,
+        # Phase 5 fields
+        pending_approval={},
+        approval_granted=False,
+        approval_history=[],
+        user_preferences={},
+        risk_level="SAFE",
+        skip_current_step=False
     )
 
     print("🤔 Agent is analyzing...\n")
@@ -85,16 +94,55 @@ def clear_memory():
     else:
         print("❌ Cancelled\n")
 
+def show_rules():
+    print("\n" + "="*60)
+    print("🛡️  Approval Preferences")
+    print("="*60)
+    prefs = preference_manager.get_all_preferences()
+    for act, pol in prefs.items():
+        print(f"  • {act}: {pol}")
+    print("="*60 + "\n")
+
+def config_approvals():
+    print("\n" + "="*60)
+    print("⚙️  Configure Approvals")
+    print("="*60)
+    prefs = preference_manager.get_all_preferences()
+    for act, pol in prefs.items():
+        val = input(f"Preference for {act} (current: {pol}) [ALWAYS_ASK/NEVER_ASK/AUTO/skip/quit]: ").strip().upper()
+        if val in ["QUIT", "EXIT", "Q"]:
+            print("🛑 Exiting configuration.")
+            break
+        elif val in ["ALWAYS_ASK", "NEVER_ASK", "AUTO"]:
+            preference_manager.set_preference(act, val)
+            print(f"✅ Updated {act} to {val}")
+        elif val and val != "SKIP":
+            print("❌ Invalid input, keeping unchanged.")
+    print("="*60 + "\n")
+
+def show_approval_history():
+    print("\n" + "="*60)
+    print("📖 Approval History")
+    print("="*60)
+    history = approval_logger.get_recent_approvals()
+    for item in history:
+        print(f"  • [{item['timestamp']}] {item['action_type']} ({item['risk_level']}) - Decision: {item['user_decision']}")
+    
+    stats = approval_logger.get_approval_stats()
+    print(f"\nStats: {stats.get('APPROVED', 0)} Approved | {stats.get('REJECTED', 0)} Rejected")
+    print("="*60 + "\n")
+
 
 def main():
     # Generate session ID for this run
     session_id = str(uuid.uuid4())
     
     print("\n" + "=" * 60)
-    print("🤖 Task Automation Agent - Phase 4")
+    print("🤖 Task Automation Agent - Phase 5")
     print("Simple tasks: Direct execution")
     print("Complex tasks: Planning + Step execution")
     print("Memory: Learns from every task")
+    print("Safety: Human-in-the-loop approvals")
     print("=" * 60)
 
     print("\n📝 Try these examples:")
@@ -105,6 +153,9 @@ def main():
     print("\n🔧 Commands:")
     print("'stats' - Show memory statistics")
     print("'clear' - Clear all memory")
+    print("'show-rules' - Display current approval preferences")
+    print("'config-approvals' - Interactive preference configuration")
+    print("'approval-history' - Show recent approval decisions")
     print("'exit' or 'quit' - Stop\n")
 
     while True:
@@ -120,6 +171,18 @@ def main():
             
             if task.lower() == 'clear':
                 clear_memory()
+                continue
+                
+            if task.lower() == 'show-rules':
+                show_rules()
+                continue
+                
+            if task.lower() == 'config-approvals':
+                config_approvals()
+                continue
+                
+            if task.lower() == 'approval-history':
+                show_approval_history()
                 continue
             
             if task:

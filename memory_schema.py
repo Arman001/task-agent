@@ -48,10 +48,29 @@ CREATE TABLE IF NOT EXISTS session_memory (
     PRIMARY KEY (session_id, task_index)
 );
 
+-- Phase 5: Approval preferences per action type
+CREATE TABLE IF NOT EXISTS approval_preferences (
+    action_type TEXT PRIMARY KEY,
+    policy TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Phase 5: Detailed approval history
+CREATE TABLE IF NOT EXISTS approval_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    step_description TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    risk_level TEXT NOT NULL,
+    user_decision TEXT NOT NULL,
+    reason TEXT
+);
+
 -- Indexes for faster queries
 CREATE INDEX IF NOT EXISTS idx_task_timestamp ON task_history(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_file_accessed ON file_cache(last_accessed DESC);
 CREATE INDEX IF NOT EXISTS idx_session ON session_memory(session_id, task_index);
+CREATE INDEX IF NOT EXISTS idx_approval_timestamp ON approval_history(timestamp DESC);
 """
 
 def init_db():
@@ -60,6 +79,12 @@ def init_db():
     conn.executescript(SCHEMA)
     conn.commit()
     conn.close()
+    
+    # Initialize default preferences if table is empty
+    from preference_manager import preference_manager
+    prefs = preference_manager.get_all_preferences()
+    if not prefs:
+        preference_manager.reset_preferences()
 
 if __name__ == "__main__":
     init_db()

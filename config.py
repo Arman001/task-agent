@@ -20,3 +20,8 @@ MEMORY_DB_PATH = "agent_memory.db"
 SESSION_MEMORY_LIMIT = 10  # Number of tasks to keep in session
 TASK_HISTORY_LIMIT = 1000  # Maximum tasks in history
 FILE_CACHE_DAYS = 30  # Days to keep file metadata
+
+# Phase 5: Feedback & Control config
+APPROVAL_TIMEOUT_SECONDS = None  # No timeout, wait for user
+DEFAULT_APPROVAL_POLICY = "SMART"  # Only ask for critical
+ENABLE_APPROVAL_LEARNING = False  # Save for Phase 6

@@ -111,6 +111,25 @@ def file_checker(path: str) -> str:
     return f"File {os.path.basename(path)} {'exists' if exists else 'does not exist'}"
 
 
+@tool
+def file_deleter(path: str) -> str:
+    """Delete a file. Use simple filenames like 'test.txt' for current directory."""
+    try:
+        # Clean the path - remove any placeholder paths
+        if path.startswith('/path/to/'):
+            path = path.replace('/path/to/', '')
+        # Use current directory for simple filenames
+        if not os.path.dirname(path):
+            path = os.path.join(os.getcwd(), path)
+        if os.path.exists(path):
+            os.remove(path)
+            return f"Successfully deleted {os.path.basename(path)}"
+        else:
+            return f"Error: File {os.path.basename(path)} not found"
+    except Exception as e:
+        return f"Error deleting file: {e}"
+
+
 # -------------------------
 # Phase 3: Web Tools
 # -------------------------

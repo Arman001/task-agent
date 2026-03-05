@@ -1,4 +1,4 @@
-# 🤖 Task Automation Agent (Phase 4)
+# 🤖 Task Automation Agent (Phase 5)
 
 A step-by-step, build-in-public project focused on creating a **real task automation agent** using modern agentic tooling.
 
@@ -22,47 +22,49 @@ Each phase adds **one clear capability**, while keeping the system runnable and 
 
 ---
 
-## 🧩 Current Phase: Phase 4 – Memory & Context
+## 🧩 Current Phase: Phase 5 – Human-in-the-Loop & Approval Layer
 
-### What Phase 4 adds
+### What Phase 5 adds
 
-Phase 4 gives the agent memory - it can now remember past tasks, learn from failures, and optimize based on experience:
+Phase 5 introduces a robust safety net. By letting the agent classify its own actions based on risk, it can pause execution dynamically and ask for explicit human permission before doing anything destructive (like deleting files or making POST requests):
 
-- **Task History**: Remembers all past executions with outcomes
-- **Context Awareness**: Maintains conversation context within session
-- **File Caching**: Skips re-validation of known files
-- **Pattern Learning**: Tracks tool success rates and learns optimal approaches
-- **Faster Execution**: Repeat tasks run 2-3x faster with cached context
-- **Backward compatibility**: All Phase 3 functionality preserved
+- **Risk Classifier**: Automatically analyzes active tools/tasks and grades them as `SAFE`, `MODERATE`, or `CRITICAL`.
+- **Preference Manager**: A granular, tool-by-tool SQLite rule engine (`ALWAYS_ASK`, `NEVER_ASK`, `AUTO`).
+- **Dynamic Interception**: LangGraph dynamically intercepts execution strings, spins up a terminal warning, and traps the response.
+- **Graceful Rejection**: Safely escapes the fallback LLM loop entirely without hallucinating if a user types "no".
+- **Approval Logging**: Every single decision the user makes is logged persistently.
+- **Backward compatibility**: All Phase 1-4 functionality (Memory, Fallbacks, Planners) is entirely preserved.
 
 ### 🔄 How it works
 
-**Flow with Memory**:
+**Flow with Approvals**:
 
 ```
-Input → Memory Retrieval → Analysis → Execution → Memory Writer → Result
+Input → Memory Retrieval → Analysis & Planning → Risk Classifier → Approval Node (If needed) → Execution → Result
 ```
 
-**Memory Types**:
-1. **Conversation Memory** (Short-term): Current session context, cleared on restart
-2. **Task History** (Long-term): All executed tasks, searchable for similar past tasks
-3. **Pattern Learning** (Intelligence): Tool success rates, file metadata cache, optimization
+**Approval Modes**:
+1. **`NEVER_ASK`**: Executes silently without interrupting.
+2. **`ALWAYS_ASK`**: Forces a pause and human terminal prompt no matter what.
+3. **`AUTO` (Smart)**: Checks the Risk Classifier. Bypasses the prompt if `SAFE`/`MODERATE`, but stops for `CRITICAL` (e.g., dropping a file).
 
 ---
 
-## ✅ Phase 4 Capabilities
+## ✅ Phase 5 Capabilities
 
-- **Intelligent caching**: File metadata speeds up checks and reads
-- **Tool learning**: Tracks success and failure rates per tool
-- **Conversation history**: Uses recent tasks for context
-- **Persistent storage**: Stores logs in local SQLite database
+- **Human-in-the-Loop**: Active intercepts for dangerous executions
+- **Granular Control**: User specific rule table mapping natively via `config-approvals`
+- **Intelligent caching**: File metadata speeds up checks and reads (Phase 4)
+- **Tool learning**: Tracks success and failure rates per tool (Phase 4)
+- **Conversation history**: Uses recent tasks for context (Phase 4)
+- **Persistent storage**: Stores logs in local SQLite database (Phase 4)
 - **Internet connectivity**: Search web, fetch URLs, call APIs (Phase 3)
 - **Error resilience**: Automatic retry with exponential backoff (Phase 3)
 - **Fallback intelligence**: Creates alternative plans when primary fails (Phase 3)
 
 ---
 
-## 🏗 Phase 4 Architecture
+## 🏗 Phase 5 Architecture
 
 ```
 User Input
@@ -73,6 +75,10 @@ Complexity Analyzer (LLM)
     ↓
 ┌─ SIMPLE ────────────┐    ┌─ COMPLEX ─────────────────────┐
 │ Simple Agent        │    │ Planner                       │
+│ ↓                   │    │ ↓                             │
+│ Risk Classifier     │    │ Risk Classifier Loop          │
+│ ↓                   │    │ ↓                             │
+│ Approval Required?  │←──→│ Approval Required?            │
 │ ↓                   │    │ ↓                             │
 │ Tools (if needed)   │    │ Executor Loop                 │
 │ ↓                   │    │ ↓                             │
@@ -89,16 +95,19 @@ Complexity Analyzer (LLM)
                   Final Output
 ```
 
-**10 LangGraph Nodes**:
+**13 LangGraph Nodes**:
 - `memory_retrieval`: Pre-fetches task context, session history and file caches
 - `analyzer`: Determines task complexity
 - `planner`: Creates step-by-step plans
+- `risk_classifier`: Grades danger payload of executing step
+- `approval_request`: Pauses terminal loop to ask user for permission
+- `approval_decision`: Conditionally steps execution forward or skips safely
 - `executor`: Executes individual steps with error handling
 - `error_handler`: Analyzes failures, decides retry/fallback
 - `fallback_planner`: Creates alternative approaches
 - `coordinator`: Compiles final results with error summary
 - `simple_agent`: Handles direct execution (Phase 1 behavior)
-- `tools`: 9 tools (calculator, files, web, APIs)
+- `tools`: 10 tools (calculator, files, web, APIs, file deleter)
 - `memory_writer`: Saves execution results, states, and telemetry to SQLite
 
 ---
@@ -119,15 +128,19 @@ Complexity Analyzer (LLM)
 
 ```
 .
-├── agent.py                    # Core agent logic
-├── tools.py                    # Tools (basic + web + API)
-├── state.py                    # State with error & memory tracking
+├── agent.py                    # Core agent logic & Router mapping
+├── tools.py                    # Tools (basic + web + API + Deleter)
+├── state.py                    # State with error, memory, and approval tracking
 ├── config.py                   # Configuration and API keys
-├── main.py                     # CLI with Memory interface
+├── main.py                     # CLI with Phase 5 command interface
 ├── memory_manager.py           # SQLite database interaction layer
 ├── memory_nodes.py             # Memory retrieval and saving nodes
-├── memory_schema.py            # SQLite schema
-├── test_phase4.py              # Test suite
+├── memory_schema.py            # SQLite schema building
+├── risk_classifier.py          # Risk grading logic for inputs Action
+├── approval_nodes.py           # 3 LangGraph node controllers for Approval loops
+├── preference_manager.py       # SQL Rule interface
+├── approval_logger.py          # SQL User Decision interface
+├── test_phase5.py               # Test suite
 ├── agent_memory.db             # Local memory database
 └── README.md
 ```
@@ -184,6 +197,11 @@ uv run python main.py
 - Type a repeat task -> Watch it execute faster (File Cache)
 - Reference a past item -> E.g., "Analyze the file from earlier"
 
+**Approval specific tasks**:
+- `show-rules` -> View current safety rules
+- `config-approvals` -> Modify safety rules dynamically
+- `approval-history` -> View local DB tracking history
+
 ---
 
 ## 📊 Phase Evolution
@@ -210,12 +228,19 @@ uv run python main.py
 - Exponential backoff (1s, 2s, 4s)
 - Fallback planning for failures
 
-### ✅ Phase 4 (Branch: `main`)
-- **NEW**: Task History Database
-- **NEW**: Session/Context memory awareness
-- **NEW**: File metadata caching
-- **NEW**: Tool success rate analytics
-- **NEW**: Faster execution times through caching
+### ✅ Phase 4 (Branch: `phase-4`)
+- Task History Database
+- Session/Context memory awareness
+- File metadata caching
+- Faster execution times through caching
+
+### ✅ Phase 5 (Branch: `main`)
+- **NEW**: Human-in-the-loop dynamic approvals
+- **NEW**: Safe / Moderate / Critical risk classification mapping
+- **NEW**: SQLite-backed preference engine rules (`ALWAYS_ASK`, `NEVER_ASK`, `AUTO`)
+- **NEW**: SQLite-backed User decision logger
+- **NEW**: Safe fallback trapping for looping simple agents via `END` graphs
+- **NEW**: Command line utility modifiers (`show-rules`, `config-approvals`, `approval-history`)
 
 ---
 
@@ -238,8 +263,8 @@ This project treats agents as **software systems**, not prompt tricks.
 
 Planned future phases:
 
-- **Phase 5**: Feedback loops and human-in-the-loop control
 - **Phase 6**: Multi-agent collaboration
+- **Phase 7**: UI integration or Docker packaging
 
 Each phase builds incrementally without breaking previous functionality.
 
