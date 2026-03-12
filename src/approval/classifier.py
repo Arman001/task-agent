@@ -15,7 +15,7 @@ MODERATE_TOOLS = {
 }
 
 CRITICAL_TOOLS = {
-    # Often an HTTP tool could be critical if using POST, but we will check keywords
+    "python_executor"
 }
 
 CRITICAL_KEYWORDS = [

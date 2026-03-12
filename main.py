@@ -1,16 +1,20 @@
-from agent import agent
-from state import AgentState
-from memory_manager import MemoryManager
-from preference_manager import preference_manager
-from approval_logger import approval_logger
+from src.core.agent import agent
+from src.core.state import AgentState
+from src.memory.manager import MemoryManager
+from src.approval.preferences import preference_manager
+from src.approval.logger import approval_logger
+from datetime import datetime
 import uuid
+from rich.panel import Panel
+from rich.table import Table
+from rich.syntax import Syntax
+
+from src.core.ui import console, agent_status
 
 memory_manager = MemoryManager()
 
 def run_agent(task: str, session_id: str):
-    print(f"\n{'='*60}")
-    print(f"📋 Task: {task}")
-    print(f"{'='*60}\n")
+    console.print(Panel(f"[bold white]{task}[/bold white]", title="📋 Task", border_style="blue"))
 
     initial_state = AgentState(
         task=task,
@@ -36,30 +40,36 @@ def run_agent(task: str, session_id: str):
         approval_history=[],
         user_preferences={},
         risk_level="SAFE",
-        skip_current_step=False
+        skip_current_step=False,
+        # Phase 6 fields
+        code_executions=[],
+        code_to_execute="",
+        execution_output="",
+        generated_files=[]
     )
 
-    print("🤔 Agent is analyzing...\n")
-    final_state = agent.invoke(initial_state)
-
-    print(f"{'='*60}")
-    print("✅ Final Result:")
-    print(f"{'='*60}")
+    agent_status.start()
+    try:
+        final_state = agent.invoke(initial_state)
+    finally:
+        agent_status.stop()
 
     if final_state.get("result"):
-        print(f"\n{final_state['result']}\n")
+        result_text = final_state['result']
     else:
         messages = final_state.get("messages", [])
         if messages:
             last = messages[-1]
-            print(f"\n{getattr(last, 'content', last)}\n")
+            result_text = getattr(last, 'content', str(last))
+        else:
+            result_text = "No output."
+
+    console.print(Panel(result_text, title="✅ Final Result", border_style="green"))
 
     # Show memory context if available
     memory_ctx = final_state.get('memory_context', {})
     if memory_ctx.get('similar_tasks'):
-        print(f"💭 Used context from {len(memory_ctx['similar_tasks'])} similar past tasks")
-
-    print(f"{'='*60}\n")
+        console.print(f"[purple]💭 Used context from {len(memory_ctx['similar_tasks'])} similar past tasks[/purple]\n")
 
 
 def show_memory_stats():
@@ -132,18 +142,49 @@ def show_approval_history():
     print(f"\nStats: {stats.get('APPROVED', 0)} Approved | {stats.get('REJECTED', 0)} Rejected")
     print("="*60 + "\n")
 
+def show_code_history():
+    print("\n" + "="*60)
+    console.print(Panel("[bold]📖 Code Execution History[/bold]", border_style="cyan"))
+    
+    executions = memory_manager.get_code_executions(limit=5)
+    if not executions:
+        console.print("No code executions found.")
+        print("="*60 + "\n")
+        return
+        
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Timestamp", style="dim")
+    table.add_column("Status")
+    table.add_column("Files Generated")
+    
+    for ex in executions:
+        status_str = "[green]✅ Success[/green]" if ex['success'] else "[red]❌ Failed[/red]"
+        files_str = ", ".join(ex['generated_files']) if ex['generated_files'] else "-"
+        try:
+            dt = datetime.fromisoformat(ex['timestamp'])
+            time_str = dt.strftime("%I:%M %p")
+        except:
+            time_str = ex['timestamp'][:16]
+            
+        table.add_row(time_str, status_str, files_str)
+        
+    console.print(table)
+    print("="*60 + "\n")
 
 def main():
     # Generate session ID for this run
     session_id = str(uuid.uuid4())
     
-    print("\n" + "=" * 60)
-    print("🤖 Task Automation Agent - Phase 5")
-    print("Simple tasks: Direct execution")
-    print("Complex tasks: Planning + Step execution")
-    print("Memory: Learns from every task")
-    print("Safety: Human-in-the-loop approvals")
-    print("=" * 60)
+    welcome_panel = Panel(
+        "[bold cyan]Simple tasks:[/bold cyan] Direct execution\n"
+        "[bold cyan]Complex tasks:[/bold cyan] Planning + Step execution\n"
+        "[bold cyan]Memory:[/bold cyan] Learns from every task\n"
+        "[bold cyan]Safety:[/bold cyan] Human-in-the-loop approvals\n"
+        "[bold cyan]Analysis:[/bold cyan] Code Execution & Rich UI",
+        title="🤖 Task Automation Agent - Phase 6",
+        border_style="cyan"
+    )
+    console.print(welcome_panel)
 
     print("\n📝 Try these examples:")
     print("Simple: 'Calculate 15 * 8'")
@@ -156,6 +197,7 @@ def main():
     print("'show-rules' - Display current approval preferences")
     print("'config-approvals' - Interactive preference configuration")
     print("'approval-history' - Show recent approval decisions")
+    print("'show-code-history' - Display recent code executions")
     print("'exit' or 'quit' - Stop\n")
 
     while True:
@@ -183,6 +225,10 @@ def main():
                 
             if task.lower() == 'approval-history':
                 show_approval_history()
+                continue
+            
+            if task.lower() == 'show-code-history':
+                show_code_history()
                 continue
             
             if task:

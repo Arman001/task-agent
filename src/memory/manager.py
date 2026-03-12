@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import uuid
 
-import config
-from memory_schema import DB_PATH
+from src.core import config
+from src.memory.schema import DB_PATH
 
 
 class MemoryManager:
@@ -58,6 +58,55 @@ class MemoryManager:
         conn.commit()
         conn.close()
         return task_id
+        
+    def save_code_execution(self, code_snippet: str, success: bool, generated_files: List[str]):
+        """Save a code execution record."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Ensure table exists
+        cursor.execute('''CREATE TABLE IF NOT EXISTS code_executions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            code_snippet TEXT NOT NULL,
+            success BOOLEAN NOT NULL,
+            generated_files TEXT
+        )''')
+        
+        cursor.execute("""
+            INSERT INTO code_executions (code_snippet, success, generated_files)
+            VALUES (?, ?, ?)
+        """, (code_snippet, success, json.dumps(generated_files)))
+        conn.commit()
+        conn.close()
+
+    def get_code_executions(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get recent code executions."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                SELECT timestamp, code_snippet, success, generated_files
+                FROM code_executions
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (limit,))
+            rows = cursor.fetchall()
+            conn.close()
+            
+            executions = []
+            for row in rows:
+                executions.append({
+                    'timestamp': row[0],
+                    'code_snippet': row[1],
+                    'success': bool(row[2]),
+                    'generated_files': json.loads(row[3]) if row[3] else []
+                })
+            return executions
+        except sqlite3.OperationalError:
+            conn.close()
+            return []
     
     def get_recent_tasks(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent task history."""

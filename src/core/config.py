@@ -25,3 +25,9 @@ FILE_CACHE_DAYS = 30  # Days to keep file metadata
 APPROVAL_TIMEOUT_SECONDS = None  # No timeout, wait for user
 DEFAULT_APPROVAL_POLICY = "SMART"  # Only ask for critical
 ENABLE_APPROVAL_LEARNING = False  # Save for Phase 6
+
+# Phase 6: Code Execution configuration
+CODE_EXECUTION_TIMEOUT = 30
+ENABLE_CODE_EXECUTION = True
+ALLOWED_IMPORTS = ["pandas", "numpy", "matplotlib", "plotly", "csv", "json", "os", "sys"]
+MAX_CODE_LENGTH = 10000

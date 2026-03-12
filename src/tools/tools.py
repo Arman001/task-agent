@@ -3,9 +3,10 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from tavily import TavilyClient
-import config
-from memory_manager import MemoryManager
+from src.core import config
+from src.memory.manager import MemoryManager
 import hashlib
+import subprocess
 
 memory_manager = MemoryManager()
 
@@ -233,3 +234,69 @@ def api_weather(city: str) -> str:
         return f"Weather API error: {str(e)}"
     except KeyError:
         return f"Error: Could not find weather data for '{city}'"
+
+# -------------------------
+# Phase 6: Code Execution
+# -------------------------
+
+@tool
+def python_executor(code: str) -> str:
+    """Executes Python code and returns the output. Use this for:
+- Data analysis and statistics
+- Creating charts and visualizations
+- Complex calculations
+- File processing with Python libraries
+
+The code should be valid Python. Available libraries: os, sys, json, csv, 
+pandas, numpy, matplotlib (if installed).
+CRITICAL: If using pandas/matplotlib for plotting data provided in the prompt, DO NOT attempt to read from a non-existent file like 'sales_data.csv'. Directly hardcode the array/list of data into the python script!
+CRITICAL: If using matplotlib to generate charts, ALWAYS use `plt.savefig('filename.png')` BEFORE calling `plt.show()`. Calling plt.show() first clears the figure, resulting in a blank saved image. Alternatively, omit plt.show() completely when saving files."""
+    try:
+        if not getattr(config, 'ENABLE_CODE_EXECUTION', True):
+            return "Error: Code execution is disabled in config."
+            
+        files_before = set(os.listdir(os.getcwd()))
+        
+        with open(".temp_exec.py", "w", encoding="utf-8") as f:
+            f.write(code)
+            
+        result = subprocess.run(
+            ["python3", ".temp_exec.py"],
+            capture_output=True,
+            text=True,
+            timeout=getattr(config, 'CODE_EXECUTION_TIMEOUT', 30),
+            cwd=os.getcwd()
+        )
+        
+        files_after = set(os.listdir(os.getcwd()))
+        generated = list(files_after - files_before)
+        if ".temp_exec.py" in generated:
+            generated.remove(".temp_exec.py")
+            
+        if os.path.exists(".temp_exec.py"):
+            os.remove(".temp_exec.py")
+            
+        output_str = ""
+        if result.returncode == 0:
+            output_str += "Execution Status: Success\n"
+        else:
+            output_str += "Execution Status: Error\n"
+            
+        if result.stdout:
+            output_str += f"Stdout:\n{result.stdout}\n"
+        if result.stderr:
+            output_str += f"Stderr:\n{result.stderr}\n"
+            
+        if generated:
+            output_str += f"Files Generated: {', '.join(generated)}\n"
+            
+        return output_str.strip() or "Code executed successfully with no output."
+            
+    except subprocess.TimeoutExpired:
+        if os.path.exists(".temp_exec.py"):
+            os.remove(".temp_exec.py")
+        return "Execution Error: Code execution timed out after 30s"
+    except Exception as e:
+        if os.path.exists(".temp_exec.py"):
+            os.remove(".temp_exec.py")
+        return f"Execution Error: {str(e)}"

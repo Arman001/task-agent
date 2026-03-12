@@ -4,8 +4,10 @@ import uuid
 import hashlib
 import os
 
-from state import AgentState
-from memory_manager import MemoryManager
+from src.core.ui import console
+
+from src.core.state import AgentState
+from src.memory.manager import MemoryManager
 
 memory_manager = MemoryManager()
 
@@ -23,19 +25,19 @@ def memory_retrieval_node(state: AgentState) -> AgentState:
     # Initialize memory context
     state['memory_context'] = {}
     
-    print("💭 Retrieving relevant memories...")
+    console.print("[purple]💭 Retrieving relevant memories...[/purple]")
     
     # 1. Search for similar past tasks
     similar_tasks = memory_manager.search_similar_tasks(task, limit=3)
     if similar_tasks:
         state['memory_context']['similar_tasks'] = similar_tasks
-        print(f"   Found {len(similar_tasks)} similar past tasks")
+        # console.print(f"   [dim]Found {len(similar_tasks)} similar past tasks[/dim]")
     
     # 2. Get session history (context from current conversation)
     session_history = memory_manager.get_session_history(state['session_id'], limit=5)
     if session_history:
         state['memory_context']['session_history'] = session_history
-        print(f"   Loaded {len(session_history)} tasks from current session")
+        # console.print(f"   [dim]Loaded {len(session_history)} tasks from current session[/dim]")
     
     # 3. Check for file mentions in task and retrieve cached metadata
     words = task.lower().split()
@@ -47,7 +49,7 @@ def memory_retrieval_node(state: AgentState) -> AgentState:
                 if 'file_cache' not in state['memory_context']:
                     state['memory_context']['file_cache'] = {}
                 state['memory_context']['file_cache'][word] = cached_metadata
-                print(f"   📁 Found cached metadata for {word}")
+                # console.print(f"   [dim]📁 Found cached metadata for {word}[/dim]")
     
     # 4. Get tool performance stats for informed tool selection
     tool_stats = memory_manager.get_all_tool_stats()
@@ -65,7 +67,7 @@ def memory_writer_node(state: AgentState) -> AgentState:
     if not state.get('should_save_memory', True):
         return state
     
-    print("💾 Saving to memory...")
+    # console.print("[dim]💾 Saving to memory...[/dim]")
     
     # Determine success (no errors or fallback not triggered)
     success = len(state.get('errors', [])) == 0 and not state.get('fallback_triggered', False)
@@ -124,8 +126,46 @@ def memory_writer_node(state: AgentState) -> AgentState:
             success=tool_success,
             response_time=2.0  # Approximate
         )
+        
+    # Phase 6: Log code executions
+    # 1. Track from complex path
+    complex_executions = state.get('code_executions', [])
+    for ex in complex_executions:
+        memory_manager.save_code_execution(
+            ex.get('code_snippet', ''),
+            ex.get('success', False),
+            ex.get('generated_files', [])
+        )
+        
+    # 2. Track from simple path (messages array)
+    messages = state.get('messages', [])
+    for i, msg in enumerate(messages):
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            for tc in msg.tool_calls:
+                if tc.get('name') == 'python_executor':
+                    code_snippet = tc.get('args', {}).get('code', '')
+                    
+                    # Find corresponding tool result
+                    code_success = False
+                    generated_files = []
+                    
+                    if i + 1 < len(messages) and getattr(messages[i+1], 'type', '') == 'tool':
+                        tool_msg = messages[i+1]
+                        if tool_msg.tool_call_id == tc.get('id'):
+                            content = getattr(tool_msg, 'content', '')
+                            code_success = "Execution Status: Success" in content
+                            
+                            # Parse generated files
+                            if "Files Generated: " in content:
+                                try:
+                                    files_str = content.split("Files Generated: ")[1].split("\n")[0]
+                                    generated_files = [f.strip() for f in files_str.split(",")]
+                                except Exception:
+                                    pass
+                                    
+                    memory_manager.save_code_execution(code_snippet, code_success, generated_files)
     
-    print("   ✅ Memory saved")
+    # console.print("   [dim]✅ Memory saved[/dim]")
     
     return state
 
@@ -139,7 +179,8 @@ def memory_optimizer_node(state: AgentState) -> AgentState:
     
     # Example: If file metadata is cached, add note to skip validation
     if 'file_cache' in memory_context and memory_context['file_cache']:
-        print("⚡ Memory optimization: File metadata available, can skip validation")
+        pass
+        # console.print("[dim]⚡ Memory optimization: File metadata available, can skip validation[/dim]")
         # This information can be used by the planner
     
     return state

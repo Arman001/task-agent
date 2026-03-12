@@ -81,7 +81,7 @@ def init_db():
     conn.close()
     
     # Initialize default preferences if table is empty
-    from preference_manager import preference_manager
+    from src.approval.preferences import preference_manager
     prefs = preference_manager.get_all_preferences()
     if not prefs:
         preference_manager.reset_preferences()

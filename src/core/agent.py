@@ -8,12 +8,14 @@ import time
 from datetime import datetime
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from state import AgentState
-from tools import calculator, text_analyzer, file_reader, file_writer, file_checker, file_deleter, web_search, http_request, url_fetch, api_weather
-import config
-from memory_nodes import memory_retrieval_node, memory_writer_node
-from approval_nodes import risk_classifier_node, approval_request_node, approval_decision_node
+from src.core.state import AgentState
+from src.tools.tools import calculator, text_analyzer, file_reader, file_writer, file_checker, file_deleter, web_search, http_request, url_fetch, api_weather, python_executor
+from src.core import config
+from src.memory.nodes import memory_retrieval_node, memory_writer_node
+from src.approval.nodes import risk_classifier_node, approval_request_node, approval_decision_node
 import uuid
+
+from src.core.ui import console
 
 load_dotenv()
 
@@ -42,7 +44,7 @@ llm = ChatGroq(
     groq_api_key=os.getenv("GROQ_API_KEY"),
 )
 
-tools = [calculator, text_analyzer, file_reader, file_writer, file_checker, file_deleter, web_search, http_request, url_fetch, api_weather]
+tools = [calculator, text_analyzer, file_reader, file_writer, file_checker, file_deleter, web_search, http_request, url_fetch, api_weather, python_executor]
 llm_with_tools = llm.bind_tools(tools)
 
 
@@ -95,7 +97,7 @@ Examples:
     complexity = extract_text(response.content).strip()
     
     state['complexity'] = complexity
-    print(f"🔍 Task complexity: {complexity}")
+    console.print(f"[blue]🔍 Task complexity: {complexity}[/blue]")
     return state
 
 
@@ -114,26 +116,29 @@ Available tools:
 - file_checker, file_reader, file_writer, file_deleter, text_analyzer, calculator
 - web_search: Search the internet (USE THIS for research, don't fetch URLs manually)
 - http_request, url_fetch, api_weather
+- python_executor: Use this when asked for data analysis, charts, graphs, plotting, or complex calculations. Can use pandas, numpy, matplotlib.
 
 IMPORTANT RULES:
-1. Keep plans SIMPLE: 2-5 steps MAXIMUM - NO EXCEPTIONS
+1. Keep plans SIMPLE: 1-5 steps MAXIMUM - NO EXCEPTIONS. Code execution is typically just ONE step!
 2. For search/research tasks: Use web_search ONLY - don't fetch URLs manually
 3. Don't create unnecessary file operations
 4. Use simple filenames like 'test.txt', 'report.txt'
 5. Each step should use ONE tool only. NEVER combine reading and analyzing in a single step.
 6. If you need to analyze a file, you MUST explicitly include a step to read it first (e.g. Step 1: Write file, Step 2: Read file, Step 3: Analyze text from previous step).
+7. If asked to write code/scripts for analysis, use python_executor directly instead of writing to a file and executing it separately.
+8. If asked to write code/math/charts, YOU MUST NOT use web_search! You already know Python perfectly. Just write the code directly!
+9. If using matplotlib, ALWAYS call `plt.savefig(...)` BEFORE `plt.show()`. If you call show() first, the saved image will be totally blank!
+10. NEVER split coding tasks into separate "write" and "execute" steps. Writing and executing happens SIMULTANEOUSLY in ONE single step using python_executor!
+11. If analyzing or charting data provided in the prompt, DO NOT attempt to read from a non-existent file like 'sales_data.csv'. Hardcode the array directly!
 
-BAD PLAN (DON'T DO THIS):
-1. Search for sources
-2. Check if sources.txt exists
-3. Write sources to file
-4. Fetch URLs from sources...
-(This is 14 steps - TOO COMPLEX!)
+BAD PLAN (DON'T DO THIS - DON'T SPLIT WRITING AND EXECUTING):
+1. Write python code to calculate fibonacci
+2. Execute the code
+(This is 2 steps - BAD!)
 
-GOOD PLAN:
-1. Search for information
-2. Summarize findings
-(This is 2 steps - PERFECT!)
+GOOD PLAN FOR PYTHON/MATH/CHARTS:
+1. Use python_executor to write and execute python code directly
+(This is 1 step - PERFECT!)
 
 Return ONLY a numbered list of steps:
 1. [First step]
@@ -155,10 +160,10 @@ Return ONLY a numbered list of steps:
     state['current_step'] = 0
     state['step_results'] = []
     
-    print(f"📋 Created plan with {len(steps)} steps:")
+    console.print(f"[blue]📋 Created plan with {len(steps)} steps:[/blue]")
     for i, step in enumerate(steps, 1):
-        print(f"  {i}. {step}")
-    print()
+        console.print(f"  [blue]{i}. {step}[/blue]")
+    console.print()
     
     return state
 
@@ -183,10 +188,10 @@ def executor_node(state: AgentState) -> AgentState:
     # Handle retry with exponential backoff
     if state['retry_count'] > 0:
         backoff_delay = config.BACKOFF_BASE ** state['retry_count']
-        print(f"⏳ Retry {state['retry_count']}/{state['max_retries']} after {backoff_delay}s delay...")
+        console.print(f"[yellow]⏳ Retry {state['retry_count']}/{state['max_retries']} after {backoff_delay}s delay...[/yellow]")
         time.sleep(backoff_delay)
     
-    print(f"⚡ Executing step {current_step + 1}: {step_task}")
+    console.print(f"[blue]⚡ Executing step {current_step + 1}: {step_task}[/blue]")
     
     # Build context from previous results
     context = ""
@@ -194,10 +199,16 @@ def executor_node(state: AgentState) -> AgentState:
         context = "\nPrevious step results:\n" + "\n".join(
             f"Step {i+1}: {result}" for i, result in enumerate(state['step_results'])
         )
+        
+    error_context = ""
+    if state['retry_count'] > 0 and state.get('errors'):
+        recent_error = state['errors'][-1]
+        if recent_error['step'] == current_step:
+            error_context = f"\n\n🚨 PREVIOUS ATTEMPT FAILED WITH ERROR:\n{recent_error['error']}\n\nCRITICAL FIX REQUIRED: You MUST fix the above error in your logic or code. Do not repeat the same incorrect tool call or buggy Python code!"
     
     system_prompt = SystemMessage(content="You are a helpful assistant executing one step of a plan. Use the correct tool for the instructions.")
     
-    user_msg = HumanMessage(content=f"Context: {context}\n\nCurrent step to execute: {step_task}")
+    user_msg = HumanMessage(content=f"Context: {context}{error_context}\n\nCurrent step to execute: {step_task}")
     messages = [system_prompt, user_msg]
     
     try:
@@ -216,6 +227,26 @@ def executor_node(state: AgentState) -> AgentState:
             # Log specific tool name success for performance stats
             actual_tool_name = response.tool_calls[0].get("name", "unknown")
             state['tool_status'][actual_tool_name] = "success"
+            
+            # Phase 6: Log code execution if it was python_executor
+            if actual_tool_name == "python_executor":
+                code_success = "Execution Status: Success" in step_result
+                generated_files = []
+                if "Files Generated: " in step_result:
+                    try:
+                        files_str = step_result.split("Files Generated: ")[1].split("\n")[0]
+                        generated_files = [f.strip() for f in files_str.split(",")]
+                    except Exception:
+                        pass
+                        
+                code_snippet = response.tool_calls[0].get('args', {}).get('code', '')
+                if 'code_executions' not in state:
+                    state['code_executions'] = []
+                state['code_executions'].append({
+                    'code_snippet': code_snippet,
+                    'success': code_success,
+                    'generated_files': generated_files
+                })
         else:
             step_result = extract_text(response.content)
         
@@ -225,7 +256,7 @@ def executor_node(state: AgentState) -> AgentState:
         state['retry_count'] = 0
         state['tool_status'][f"step_{current_step}"] = "success"
         
-        print(f"✅ Step {current_step + 1} result: {step_result}\n")
+        console.print(f"[green]✅ Step {current_step + 1} result: {step_result}[/green]\n")
         
     except Exception as e:
         error_info = {
@@ -236,7 +267,7 @@ def executor_node(state: AgentState) -> AgentState:
         }
         state['errors'].append(error_info)
         state['tool_status'][f"step_{current_step}"] = "failed"
-        print(f"❌ Step {current_step + 1} failed: {str(e)}")
+        console.print(f"[red]❌ Step {current_step + 1} failed: {str(e)}[/red]")
     
     return state
 
@@ -273,7 +304,7 @@ def simple_agent_node(state: AgentState) -> dict:
     if getattr(response, "tool_calls", None):
         for tool_call in response.tool_calls:
             tool_name = tool_call.get("name", "unknown")
-            print(f"🔧 Using tool: {tool_name}")
+            # console.print(f"[blue]🔧 Using tool: {tool_name}[/blue]")
     else:
         # No tool calls, this is the final response
         result = extract_text(response.content)
@@ -292,15 +323,15 @@ def error_handler_node(state: AgentState) -> AgentState:
         return state
     
     last_error = state['errors'][-1]
-    print(f"⚠️  Error handler analyzing: {last_error['error'][:100]}")
+    console.print(f"[yellow]⚠️  Error handler analyzing: {last_error['error'][:100]}[/yellow]")
     
     # Check if we should retry
     if state['retry_count'] < state['max_retries']:
         state['retry_count'] += 1
-        print(f"🔄 Will retry (attempt {state['retry_count']}/{state['max_retries']})")
+        console.print(f"[yellow]🔄 Will retry (attempt {state['retry_count']}/{state['max_retries']})[/yellow]")
     else:
         # Max retries reached, trigger fallback
-        print(f"⛔ Max retries reached, triggering fallback")
+        console.print(f"[red]⛔ Max retries reached, triggering fallback[/red]")
         state['fallback_triggered'] = True
         state['retry_count'] = 0
     
@@ -315,7 +346,7 @@ def fallback_planner_node(state: AgentState) -> AgentState:
     current_step = state['current_step']
     failed_step = state['plan'][current_step] if current_step < len(state['plan']) else "unknown"
     
-    print(f"🔀 Creating fallback plan for failed step: {failed_step}")
+    console.print(f"[yellow]🔀 Creating fallback plan for failed step: {failed_step}[/yellow]")
     
     fallback_prompt = f"""
 The following step failed after multiple retries:
@@ -342,11 +373,11 @@ Examples:
     fallback_step = extract_text(response.content).strip()
     
     if fallback_step.upper() == "SKIP" or "skip" in fallback_step.lower():
-        print(f"⏭️  Skipping failed step")
+        console.print(f"[yellow]⏭️  Skipping failed step[/yellow]")
         state['step_results'].append(f"[SKIPPED: {failed_step}]")
         state['current_step'] += 1
     else:
-        print(f"🔄 Fallback approach: {fallback_step}")
+        console.print(f"[yellow]🔄 Fallback approach: {fallback_step}[/yellow]")
         state['plan'][current_step] = fallback_step
     
     # Clear errors and reset for new attempt

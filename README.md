@@ -1,4 +1,4 @@
-# 🤖 Task Automation Agent (Phase 5)
+# 🤖 Task Automation Agent (Phase 6)
 
 A step-by-step, build-in-public project focused on creating a **real task automation agent** using modern agentic tooling.
 
@@ -22,18 +22,17 @@ Each phase adds **one clear capability**, while keeping the system runnable and 
 
 ---
 
-## 🧩 Current Phase: Phase 5 – Human-in-the-Loop & Approval Layer
+## 🧩 Current Phase: Phase 6 – Terminal UI & Rich Interactive Experience
 
-### What Phase 5 adds
+### What Phase 6 adds
 
-Phase 5 introduces a robust safety net. By letting the agent classify its own actions based on risk, it can pause execution dynamically and ask for explicit human permission before doing anything destructive (like deleting files or making POST requests):
+Phase 6 completely revamps the user interaction layer by introducing a powerful, interactive Terminal UI (TUI) powered by the `rich` Python library. It moves away from standard print statements to structured, visually appealing, and organized panel displays:
 
-- **Risk Classifier**: Automatically analyzes active tools/tasks and grades them as `SAFE`, `MODERATE`, or `CRITICAL`.
-- **Preference Manager**: A granular, tool-by-tool SQLite rule engine (`ALWAYS_ASK`, `NEVER_ASK`, `AUTO`).
-- **Dynamic Interception**: LangGraph dynamically intercepts execution strings, spins up a terminal warning, and traps the response.
-- **Graceful Rejection**: Safely escapes the fallback LLM loop entirely without hallucinating if a user types "no".
-- **Approval Logging**: Every single decision the user makes is logged persistently.
-- **Backward compatibility**: All Phase 1-4 functionality (Memory, Fallbacks, Planners) is entirely preserved.
+- **Rich Terminal UI**: Beautiful, organized panels for tasks, memory retrieval, agent execution, and results.
+- **Dynamic Task Layouts**: Responsive formatting that auto-adjusts to terminal size for readability.
+- **Color-Coded Feedback**: Instant visual cues for successful steps (Green), failures (Red), and intermediate reasoning (Yellow/Cyan).
+- **Graceful Visual Loops**: Clear visual separation of the human-in-the-loop approval requests and their outcomes.
+- **Backward compatibility**: All Phase 1-5 functionality (Memory, Fallbacks, Planners, Risk Classification, Approvals) sits powerfully underneath the new UI.
 
 ### 🔄 How it works
 
@@ -50,10 +49,11 @@ Input → Memory Retrieval → Analysis & Planning → Risk Classifier → Appro
 
 ---
 
-## ✅ Phase 5 Capabilities
+## ✅ Phase 6 Capabilities
 
-- **Human-in-the-Loop**: Active intercepts for dangerous executions
-- **Granular Control**: User specific rule table mapping natively via `config-approvals`
+- **Rich Visual Interface**: Organized tables, panels, and live status displays
+- **Human-in-the-Loop**: Active intercepts for dangerous executions (Phase 5)
+- **Granular Control**: User specific rule table mapping natively via `config-approvals` (Phase 5)
 - **Intelligent caching**: File metadata speeds up checks and reads (Phase 4)
 - **Tool learning**: Tracks success and failure rates per tool (Phase 4)
 - **Conversation history**: Uses recent tasks for context (Phase 4)
@@ -64,7 +64,7 @@ Input → Memory Retrieval → Analysis & Planning → Risk Classifier → Appro
 
 ---
 
-## 🏗 Phase 5 Architecture
+## 🏗 Phase 6 Architecture
 
 ```
 User Input
@@ -116,7 +116,7 @@ Complexity Analyzer (LLM)
 
 - **LangGraph** – Agent flow, state, and routing
 - **LangChain** – Tool abstractions
-- **Groq (Llama 3.1 8B Instant)** – Fast, reliable LLM reasoning
+- **Groq (Llama 3.3 70B Versatile)** – Fast, reliable LLM reasoning
 - **Tavily** – Web search API
 - **OpenWeatherMap** – Weather data API
 - **Python** – Core implementation
@@ -128,20 +128,28 @@ Complexity Analyzer (LLM)
 
 ```
 .
-├── agent.py                    # Core agent logic & Router mapping
-├── tools.py                    # Tools (basic + web + API + Deleter)
-├── state.py                    # State with error, memory, and approval tracking
-├── config.py                   # Configuration and API keys
-├── main.py                     # CLI with Phase 5 command interface
-├── memory_manager.py           # SQLite database interaction layer
-├── memory_nodes.py             # Memory retrieval and saving nodes
-├── memory_schema.py            # SQLite schema building
-├── risk_classifier.py          # Risk grading logic for inputs Action
-├── approval_nodes.py           # 3 LangGraph node controllers for Approval loops
-├── preference_manager.py       # SQL Rule interface
-├── approval_logger.py          # SQL User Decision interface
-├── test_phase5.py               # Test suite
-├── agent_memory.db             # Local memory database
+├── src/
+│   ├── approval/               # Risk grading and user approval loops
+│   │   ├── classifier.py       # Risk grading logic for actions
+│   │   ├── logger.py           # SQL User Decision logger
+│   │   ├── nodes.py            # LangGraph node controllers for Approvals
+│   │   └── preferences.py      # SQLite rule interface
+│   ├── core/                   # Agent orchestration
+│   │   ├── agent.py            # Core LangGraph logic & Router mapping
+│   │   ├── config.py           # Configuration and API keys
+│   │   ├── state.py            # State tracking definition
+│   │   └── ui.py               # Shared rich UI theme components
+│   ├── memory/                 # Persistence and context
+│   │   ├── manager.py          # SQLite database interaction layer
+│   │   ├── nodes.py            # Memory retrieval and saving Graph nodes
+│   │   └── schema.py           # SQLite schema building
+│   └── tools/                  # LLM Tools
+│       └── tools.py            # File, Web, API, and System tools
+├── scripts/                    # Helper scripts
+├── tests/                      # Test suite
+├── main.py                     # CLI with Phase 6 TUI interface
+├── pyproject.toml              # Dependency config (uv)
+├── agent_memory.db             # Local SQLite database (ignored)
 └── README.md
 ```
 
@@ -175,7 +183,11 @@ OPENWEATHER_API_KEY=your_openweather_api_key_here
 python memory_schema.py
 ```
 
-### 4. Run
+### 4. Important: Terminal Sizing
+
+> ⚠️ **IMPORTANT NOTE FOR UI**: Because this phase uses the `rich` library for an advanced Terminal UI (TUI), **please maximize or significantly increase the size of your terminal window BEFORE running the agent**. If your terminal is too narrow, the rich formatted panels will wrap awkwardly and ruin the neat interface experience.
+
+### 5. Run
 ```bash
 python main.py
 # or with uv:
@@ -234,13 +246,19 @@ uv run python main.py
 - File metadata caching
 - Faster execution times through caching
 
-### ✅ Phase 5 (Branch: `main`)
-- **NEW**: Human-in-the-loop dynamic approvals
-- **NEW**: Safe / Moderate / Critical risk classification mapping
-- **NEW**: SQLite-backed preference engine rules (`ALWAYS_ASK`, `NEVER_ASK`, `AUTO`)
-- **NEW**: SQLite-backed User decision logger
-- **NEW**: Safe fallback trapping for looping simple agents via `END` graphs
-- **NEW**: Command line utility modifiers (`show-rules`, `config-approvals`, `approval-history`)
+### ✅ Phase 5 (Branch: `phase-5`)
+- Human-in-the-loop dynamic approvals
+- Safe / Moderate / Critical risk classification mapping
+- SQLite-backed preference engine rules (`ALWAYS_ASK`, `NEVER_ASK`, `AUTO`)
+- SQLite-backed User decision logger
+- Safe fallback trapping for looping simple agents via `END` graphs
+- Command line utility modifiers (`show-rules`, `config-approvals`, `approval-history`)
+
+### ✅ Phase 6 (Branch: `main`)
+- **NEW**: Full `rich` powered Terminal UI (TUI)
+- **NEW**: Structured visual components (Panels, Tables, Formatting)
+- **NEW**: Live display separation of tasks, memory, execution, and outputs
+- **NEW**: Clean exception formatting and layout auto-adjustment
 
 ---
 
@@ -263,8 +281,8 @@ This project treats agents as **software systems**, not prompt tricks.
 
 Planned future phases:
 
-- **Phase 6**: Multi-agent collaboration
-- **Phase 7**: UI integration or Docker packaging
+- **Phase 7**: Multi-agent collaboration
+- **Phase 8**: Deep UI integration / Docker deployment
 
 Each phase builds incrementally without breaking previous functionality.
 

@@ -1,10 +1,15 @@
 from langchain_core.messages import ToolMessage
 from datetime import datetime
 
-from state import AgentState
-from risk_classifier import classify_action
-from preference_manager import preference_manager
-from approval_logger import approval_logger
+from src.core.state import AgentState
+from src.approval.classifier import classify_action
+from src.approval.preferences import preference_manager
+from src.approval.logger import approval_logger
+
+from rich.panel import Panel
+from rich.syntax import Syntax
+
+from src.core.ui import console, agent_status
 
 def _get_action_type_from_step(step_desc: str, tool_name: str) -> str:
     """Helper to map a tool or step description to preference action type."""
@@ -39,7 +44,7 @@ def risk_classifier_node(state: AgentState) -> AgentState:
         if current_step_idx < len(plan):
             step_desc = plan[current_step_idx]
             # Try to guess tool name from text or just let classifier handle via desc keyword
-            tool_guessed = next((t for t in ["file_writer", "file_reader", "web_search", "calculator", "http_request"] if t in step_desc), "")
+            tool_guessed = next((t for t in ["python_executor", "file_writer", "file_reader", "web_search", "calculator", "http_request", "file_deleter", "file_checker", "url_fetch", "api_weather"] if t in step_desc), "")
             risk_level = classify_action(step_desc, tool_guessed)
         else:
             step_desc = "Unknown"
@@ -56,7 +61,7 @@ def risk_classifier_node(state: AgentState) -> AgentState:
                 tool_names = [tc.get("name", "") for tc in last_msg.tool_calls]
                 tool_guessed = tool_names[0] if tool_names else "unknown"
                 for t in tool_names:
-                    if t in ["file_writer", "http_request", "url_fetch"]:
+                    if t in ["python_executor", "file_writer", "http_request", "url_fetch", "file_deleter"]:
                         tool_guessed = t
                         break
                 
@@ -66,7 +71,8 @@ def risk_classifier_node(state: AgentState) -> AgentState:
         risk_level = classify_action(step_desc, tool_guessed)
 
     state['risk_level'] = risk_level
-    print(f"🛡️  Risk level: {risk_level}")
+    color = "green" if risk_level == "SAFE" else "yellow" if risk_level == "MODERATE" else "red"
+    console.print(f"[bold {color}]🛡️  Risk level: {risk_level}[/bold {color}]")
     
     # Store pending info
     action_type = _get_action_type_from_step(step_desc, tool_guessed)
@@ -97,17 +103,37 @@ def approval_request_node(state: AgentState) -> AgentState:
     
     pref = preference_manager.get_preference(action_type)
     
-    # Default behavior if AUTO but we got here, or ALWAYS_ASK / CRITICAL
-    print("\n⚠️  Approval Required")
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print(f"Action: {step_desc}")
-    print(f"Type: {action_type}")
-    print(f"Risk Level: {risk_level}")
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+    code_content = ""
+    messages = state.get('messages', [])
+    if messages:
+        last_msg = messages[-1]
+        if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+            for tc in last_msg.tool_calls:
+                if tc.get("name") in ["python_executor", "file_writer"]:
+                    code_content = tc.get("args", {}).get("code", tc.get("args", {}).get("content", ""))
+                    break
+
+    color = "red" if risk_level == "CRITICAL" else "yellow"
+
+    prompt_text = (
+        f"[bold]Action:[/bold] {step_desc}\n"
+        f"[bold]Type:[/bold] {action_type}\n"
+        f"[bold]Risk Level:[/bold] [{color}]{risk_level}[/{color}]"
+    )
+    
+    console.print(Panel(prompt_text, title="⚠️  APPROVAL REQUIRED", border_style=color))
+    
+    if code_content:
+        console.print("[bold]Code Preview:[/bold]")
+        syntax = Syntax(code_content, "python" if action_type == "python_executor" else "text", theme="monokai", line_numbers=True)
+        console.print(Panel(syntax, border_style="grey50"))
     
     while True:
         try:
+            agent_status.stop()
             decision = input("Approve this action? (yes/no): ").strip().lower()
+            agent_status.start()
+            
             if decision in ['yes', 'y']:
                 state['approval_granted'] = True
                 user_decision = "APPROVED"
@@ -117,8 +143,11 @@ def approval_request_node(state: AgentState) -> AgentState:
                 user_decision = "REJECTED"
                 break
             else:
+                agent_status.stop()
                 print("Please answer 'yes' or 'no'.")
+                agent_status.start()
         except KeyboardInterrupt:
+            agent_status.start() # Ensure it's started back if caught or just leave to main
             state['approval_granted'] = False
             user_decision = "REJECTED"
             break
@@ -148,7 +177,7 @@ def approval_decision_node(state: AgentState) -> AgentState:
         return state
         
     # Rejection processing
-    print("\n❌ Action rejected by user")
+    console.print("\n[bold red]❌ Action rejected by user[/bold red]")
     
     if state.get('complexity') == 'COMPLEX':
         state['skip_current_step'] = True

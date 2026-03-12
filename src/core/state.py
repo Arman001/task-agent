@@ -31,3 +31,9 @@ class AgentState(TypedDict):
     user_preferences: Dict[str, str]  # Approval rules per action type
     risk_level: str  # Current step risk: SAFE/MODERATE/CRITICAL
     skip_current_step: bool  # Flag to skip rejected steps
+    
+    # Phase 6: Code Execution fields
+    code_executions: List[Dict[str, Any]]  # Stores multiple executions (complex path)
+    code_to_execute: str  # Legacy
+    execution_output: str  # Legacy 
+    generated_files: List[str]  # Legacy
